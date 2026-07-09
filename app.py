@@ -5,12 +5,17 @@ import pandas as pd
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 
-from utils.config import ASSET_CONFIG, EXPENSE_CATEGORIES, SAVINGS_PRODUCTS, STARTING_CASH
+from utils.config import (
+    ASSET_CONFIG, EXPENSE_CATEGORIES, SAVINGS_PRODUCTS, STARTING_CASH,
+    ONBOARDING_QUESTIONS, BADGES, BENCHMARK_SPENDING_RATIO,
+)
 from utils.core import (
     get_user, log_tx, get_net_worth,
     get_market, tick_market, format_korean_money,
+    get_level, xp_progress, check_habit_badges, award_badge, BADGE_BY_ID,
+    set_goal, goal_progress, record_net_worth_point,
 )
-from utils.ai_coach import get_financial_diagnosis
+from utils.ai_coach import get_financial_diagnosis, get_risk_profile
 
 st.set_page_config(page_title="머니레벨업 | AI 금융 코치", page_icon="💡", layout="wide")
 
@@ -74,6 +79,21 @@ div[data-testid="stMetricLabel"] { color: #8891A8 !important; }
 .news-item { border-left: 3px solid #3D4270; padding: 6px 12px; margin-bottom: 6px; background: #10101C; border-radius: 0 8px 8px 0; }
 .news-item .n-time { font-size: 0.72rem; color: #64748B; }
 .news-item .n-text { font-size: 0.85rem; color: #CBD5E1; }
+
+/* 뱃지 카드 */
+.badge-card { text-align:center; border-radius: 14px; padding: 16px 10px; margin-bottom: 10px; }
+.badge-card.earned { background: linear-gradient(160deg,#1E2140,#171833); border: 1px solid #3D4B8C; }
+.badge-card.locked { background: #101018; border: 1px solid #1E2035; opacity: 0.45; }
+.badge-card .b-icon { font-size: 1.9rem; }
+.badge-card .b-name { font-size: 0.85rem; color: #E2E8F0; font-weight: 700; margin-top: 4px; }
+.badge-card .b-desc { font-size: 0.72rem; color: #8891A8; margin-top: 2px; }
+
+/* 레벨 바 */
+.level-badge { display:inline-flex; align-items:center; gap:8px; background:#12121F; border:1px solid #23233B;
+    border-radius: 999px; padding: 6px 14px; font-size: 0.82rem; color:#E2E8F0; }
+
+/* 온보딩 카드 */
+.onb-card { background:#10101C; border:1px solid #1E2035; border-radius:16px; padding:20px; margin-bottom:14px; }
 </style>
 """
 
@@ -93,6 +113,21 @@ def price_chart(asset_id, market):
     fig.update_layout(**PLOTLY_DARK, height=220, showlegend=False)
     fig.update_yaxes(showgrid=False, range=[min(hist) * 0.985, max(hist) * 1.015])
     fig.update_xaxes(showgrid=False, showticklabels=False)
+    return fig
+
+
+def net_worth_chart(user):
+    hist = user.get("nw_history", [])
+    if len(hist) < 2:
+        return None
+    vals = [h["value"] for h in hist]
+    up = vals[-1] >= vals[0]
+    color = "#66BB6A" if up else "#FF5C5C"
+    fig = go.Figure(go.Scatter(y=vals, mode="lines+markers", line=dict(color=color, width=2.5),
+                                marker=dict(size=4)))
+    fig.update_layout(**PLOTLY_DARK, height=200, showlegend=False)
+    fig.update_xaxes(showgrid=False, showticklabels=False)
+    fig.update_yaxes(showgrid=False)
     return fig
 
 
@@ -139,6 +174,11 @@ def render_dashboard(user, market):
     c3.metric("투자 평가액", format_korean_money(invest_val))
     save_val = sum(s["amount"] for s in user.get("savings", []))
     c4.metric("저축액", format_korean_money(save_val))
+
+    nw_fig = net_worth_chart(user)
+    if nw_fig:
+        st.caption("순자산 추이 (세션 내)")
+        st.plotly_chart(nw_fig, use_container_width=True, config={"displayModeBar": False})
 
     st.write("")
     col_l, col_r = st.columns([3, 2])
@@ -280,12 +320,24 @@ def render_expense(user):
                  "카테고리": f"{CAT_BY_ID[t['category']]['icon']} {CAT_BY_ID[t['category']]['name']}",
                  "금액": format_korean_money(t["amount"]), "메모": t.get("memo", "")} for t in tx]
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-    with col_r:
-        st.subheader("카테고리별 비중")
+
+        st.subheader("또래 평균 대비 소비 비중")
+        st.caption("20~30대 1인가구 평균 소비 비중 대비 내 소비 비중 (통계청 가계동향조사 기반 추정치)")
         cat_sum = {}
         for t in tx:
             name = CAT_BY_ID[t["category"]]["name"]
             cat_sum[name] = cat_sum.get(name, 0) + t["amount"]
+        total = sum(cat_sum.values()) or 1
+        comp_rows = []
+        for name, amt in sorted(cat_sum.items(), key=lambda x: -x[1]):
+            my_ratio = amt / total
+            bench = BENCHMARK_SPENDING_RATIO.get(name, 0.1)
+            diff = (my_ratio - bench) * 100
+            comp_rows.append({"카테고리": name, "내 비중": f"{my_ratio*100:.1f}%",
+                               "또래 평균": f"{bench*100:.1f}%", "차이": f"{diff:+.1f}%p"})
+        st.dataframe(pd.DataFrame(comp_rows), use_container_width=True, hide_index=True)
+    with col_r:
+        st.subheader("카테고리별 비중")
         fig = go.Figure(go.Pie(labels=list(cat_sum.keys()), values=list(cat_sum.values()), hole=0.55,
                                 marker=dict(colors=["#5C6BC0", "#4C8DFF", "#FF5C5C", "#FFB74D", "#66BB6A", "#BA68C8", "#26C6DA", "#9AA5C0"])))
         fig.update_layout(**PLOTLY_DARK, height=260, showlegend=True, legend=dict(font=dict(size=10)))
@@ -320,6 +372,93 @@ def render_savings(user):
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
+# ── 목표 저축 ─────────────────────────────────────────────────────────────
+def render_goals(user):
+    st.subheader("🎯 목표 저축")
+    st.caption("목표를 정하면 예/적금 총액 기준으로 달성률을 추적해드려요.")
+
+    g = goal_progress(user)
+    if g:
+        with st.container(border=True):
+            st.write(f"**{g['name']}**")
+            st.progress(g["pct"], text=f"{format_korean_money(g['current'])} / {format_korean_money(g['target'])} ({g['pct']*100:.1f}%)")
+            if g["pct"] >= 1.0:
+                if award_badge(user, "goal_reached"):
+                    st.balloons()
+                st.success("🎉 목표를 달성했어요!")
+        st.divider()
+
+    with st.form("goal_form"):
+        st.write("새 목표 설정" if not g else "목표 다시 설정하기")
+        name = st.text_input("목표 이름", placeholder="예: 비상금 500만원 모으기")
+        target = st.number_input("목표 금액(원)", min_value=10000, step=100000, value=5_000_000)
+        submitted = st.form_submit_button("목표 설정", type="primary")
+        if submitted:
+            if not name.strip():
+                st.error("목표 이름을 입력해주세요.")
+            else:
+                set_goal(user, name.strip(), target)
+                st.success("목표가 설정되었어요!")
+                st.rerun()
+
+
+# ── 뱃지 / 레벨 ───────────────────────────────────────────────────────────
+def render_badges(user):
+    level, pct, next_ceil = xp_progress(user["xp"])
+    st.subheader(f"🏅 레벨 {level}")
+    st.progress(pct, text=f"XP {user['xp']} / {next_ceil}")
+    st.caption("확률형 아이템이 아닌, 조건을 채우면 100% 지급되는 성취 배지입니다.")
+
+    cols = st.columns(4)
+    for i, b in enumerate(BADGES):
+        earned = b["id"] in user["badges"]
+        with cols[i % 4]:
+            cls = "earned" if earned else "locked"
+            st.markdown(f"""<div class="badge-card {cls}">
+                <div class="b-icon">{b['icon']}</div>
+                <div class="b-name">{b['name']}</div>
+                <div class="b-desc">{b['desc']}</div>
+                </div>""", unsafe_allow_html=True)
+
+
+# ── 온보딩 (투자성향 진단) ─────────────────────────────────────────────────
+def render_onboarding(user):
+    st.subheader("🧭 투자성향 진단")
+    st.caption("4개 질문에 답하면 AI가 투자성향을 분석해 추천 자산배분을 알려드려요.")
+
+    if user.get("risk_profile"):
+        rp = user["risk_profile"]
+        with st.container(border=True):
+            st.markdown(f"### 당신의 투자성향: **{rp.get('profile_name','')}**")
+            st.write(rp.get("description", ""))
+            alloc = rp.get("recommended_allocation", {})
+            if alloc:
+                fig = go.Figure(go.Pie(labels=list(alloc.keys()), values=list(alloc.values()), hole=0.55,
+                                        marker=dict(colors=["#4C8DFF", "#66BB6A", "#FFB74D"])))
+                fig.update_layout(**PLOTLY_DARK, height=260, showlegend=True)
+                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            if rp.get("caution"):
+                st.warning(rp["caution"])
+        if st.button("다시 진단받기"):
+            user["risk_profile"] = None
+            st.rerun()
+        return
+
+    answers = {}
+    with st.form("onboarding_form"):
+        for q in ONBOARDING_QUESTIONS:
+            choice = st.radio(q["q"], [o["label"] for o in q["options"]], key=f"onb_{q['id']}")
+            answers[q["id"]] = next(o for o in q["options"] if o["label"] == choice)
+        submitted = st.form_submit_button("진단 받기", type="primary")
+        if submitted:
+            payload = [{"q": q["q"], "answer": answers[q["id"]]["label"], "score": answers[q["id"]]["score"]}
+                       for q in ONBOARDING_QUESTIONS]
+            with st.spinner("AI가 투자성향을 분석하는 중..."):
+                result = get_risk_profile(payload)
+            user["risk_profile"] = result
+            st.rerun()
+
+
 # ── AI 코치 ───────────────────────────────────────────────────────────────
 def render_ai_coach(user, market):
     st.subheader("🤖 AI 금융 코치")
@@ -343,6 +482,8 @@ def render_ai_coach(user, market):
             result = get_financial_diagnosis(spending, portfolio_summary, savings_total, user.get("cash", 0))
 
         st.session_state["ai_result"] = result
+        if award_badge(user, "ai_first"):
+            st.toast("🏅 뱃지 획득: AI와 첫 상담", icon="🎉")
 
     result = st.session_state.get("ai_result")
     if result:
@@ -363,43 +504,85 @@ def render_ai_coach(user, market):
                     st.write(f"- {item}")
 
 
+def render_signup_gate():
+    st.markdown("""<div class="ml-hero">
+        <h1>💡 머니레벨업</h1>
+        <p>사회초년생을 위한 AI 소비·투자 코칭 모의 서비스</p>
+        </div>""", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.subheader("시작하기 전에")
+        st.caption("계정/비밀번호 없이, 이름과 출생연도만 입력하면 바로 체험할 수 있어요.")
+        with st.form("signup_form"):
+            name = st.text_input("이름 (또는 닉네임)", placeholder="예: 김효민")
+            birth_year = st.number_input("출생연도", min_value=1950, max_value=2015, value=2000, step=1)
+            submitted = st.form_submit_button("시작하기", type="primary", use_container_width=True)
+            if submitted:
+                if not name.strip():
+                    st.error("이름을 입력해주세요.")
+                else:
+                    st.session_state.profile = {"name": name.strip(), "birth_year": int(birth_year)}
+                    st.rerun()
+
+
 # ── 메인 ──────────────────────────────────────────────────────────────────
 def main():
     st.markdown(CSS, unsafe_allow_html=True)
+
+    if "profile" not in st.session_state:
+        render_signup_gate()
+        return
+
     st_autorefresh(interval=15_000, key="market_tick")
 
     user = get_user()
     market = tick_market()
+    record_net_worth_point(user, market)
+    newly = check_habit_badges(user)
+    for bid in newly:
+        st.toast(f"🏅 뱃지 획득: {BADGE_BY_ID[bid]['name']}", icon="🎉")
+
+    profile = st.session_state.profile
+    age = time.localtime().tm_year - profile["birth_year"] + 1  # 한국식 나이
 
     with st.sidebar:
-        st.write("💡 **머니레벨업 체험판**")
-        st.caption("로그인 없이 바로 체험할 수 있는 데모입니다. 새로고침하면 데이터가 초기화됩니다.")
+        st.write(f"👋 **{profile['name']}**님 ({age}세)")
+        st.caption("계정/DB 없이 세션 안에서만 유지되는 데모입니다. 새로고침하면 초기화돼요.")
+        level, pct, next_ceil = xp_progress(user["xp"])
+        st.markdown(f"<span class='level-badge'>⭐ 레벨 {level} · XP {user['xp']}</span>", unsafe_allow_html=True)
+        st.progress(pct)
         if st.button("🔄 처음부터 다시 시작"):
-            for k in ("user", "market", "ai_result"):
+            for k in ("user", "market", "ai_result", "profile"):
                 st.session_state.pop(k, None)
             st.rerun()
         st.divider()
         st.caption(f"시작 자금: {format_korean_money(STARTING_CASH)}")
         st.caption("실제 금전 거래가 없는 교육용 시뮬레이션입니다.")
 
-    st.markdown("""<div class="ml-hero">
+    st.markdown(f"""<div class="ml-hero">
         <h1>💡 머니레벨업</h1>
-        <p>사회초년생을 위한 AI 소비·투자 코칭 모의 서비스</p>
+        <p>{profile['name']}님, 오늘도 한 걸음 레벨업 해봐요</p>
         </div>""", unsafe_allow_html=True)
 
     render_news_ticker(market)
 
-    tabs = st.tabs(["📊 대시보드", "📈 모의투자", "🧾 가계부", "🏦 예/적금", "🤖 AI 코치"])
+    tabs = st.tabs(["🧭 투자성향", "📊 대시보드", "📈 모의투자", "🧾 가계부",
+                    "🎯 목표저축", "🏦 예/적금", "🤖 AI 코치", "🏅 뱃지"])
     with tabs[0]:
-        render_dashboard(user, market)
+        render_onboarding(user)
     with tabs[1]:
-        render_invest(user, market)
+        render_dashboard(user, market)
     with tabs[2]:
-        render_expense(user)
+        render_invest(user, market)
     with tabs[3]:
-        render_savings(user)
+        render_expense(user)
     with tabs[4]:
+        render_goals(user)
+    with tabs[5]:
+        render_savings(user)
+    with tabs[6]:
         render_ai_coach(user, market)
+    with tabs[7]:
+        render_badges(user)
 
 
 if __name__ == "__main__":

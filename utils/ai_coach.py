@@ -34,6 +34,54 @@ def _client():
     return genai.Client(api_key=api_key)
 
 
+RISK_PROFILE_PROMPT = """\
+당신은 투자성향 진단 전문가입니다. 사용자가 5점 척도가 아닌 4개 문항(투자기간, 손실반응, 목표, 경험)에
+답한 점수 합계(4~12점)와 각 답변 내용을 보고, 아래 JSON 형식으로만 한국어로 응답하세요.
+
+- profile_name: "안정형" | "안정추구형" | "위험중립형" | "적극투자형" | "공격투자형" 중 점수에 맞는 하나
+  (4~5점: 안정형, 6~7점: 안정추구형, 8~9점: 위험중립형, 10~11점: 적극투자형, 12점: 공격투자형)
+- description: 이 성향에 대한 2~3문장 설명 (사용자의 답변 맥락을 반영)
+- recommended_allocation: {"주식/성장자산": 비중(%), "채권/안전자산": 비중(%), "현금성자산": 비중(%)} 형태,
+  총합 100이 되도록. 안정형일수록 채권/현금 비중을 높게, 공격투자형일수록 주식 비중을 높게.
+- caution: 이 성향의 사람이 특히 조심해야 할 점 1문장
+
+응답은 반드시 아래 JSON 형식으로만:
+{
+  "profile_name": "...",
+  "description": "...",
+  "recommended_allocation": {"주식/성장자산": 0, "채권/안전자산": 0, "현금성자산": 0},
+  "caution": "..."
+}
+"""
+
+
+def get_risk_profile(answers: list):
+    """answers: [{"q": 질문, "answer": 선택한 라벨, "score": 점수}, ...]"""
+    client = _client()
+    total_score = sum(a["score"] for a in answers)
+    if client is None:
+        return {
+            "profile_name": "진단 불가",
+            "description": "AI 코치를 사용하려면 secrets.toml에 GEMINI_API_KEY를 설정해주세요.",
+            "recommended_allocation": {}, "caution": "",
+        }
+    try:
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=json.dumps({"total_score": total_score, "answers": answers}, ensure_ascii=False),
+            config=types.GenerateContentConfig(
+                system_instruction=RISK_PROFILE_PROMPT,
+                response_mime_type="application/json",
+            ),
+        )
+        text = resp.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        return json.loads(text)
+    except Exception as e:
+        return {
+            "profile_name": "오류",
+            "description": f"진단 생성 중 오류가 발생했습니다: {e}",
+            "recommended_allocation": {}, "caution": "",
+        }
 def get_financial_diagnosis(spending_by_category: dict, portfolio_summary: list, savings_total: int, cash: int):
     """
     spending_by_category: {"식비": 320000, "카페/간식": 150000, ...}
