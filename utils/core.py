@@ -4,7 +4,7 @@
 import time
 import random
 import streamlit as st
-from utils.config import ASSET_CONFIG, ASSET_BASE_PRICE, STARTING_CASH
+from utils.config import ASSET_CONFIG, ASSET_BASE_PRICE, STARTING_CASH, NEWS_TEMPLATES
 
 
 def format_korean_money(num):
@@ -50,7 +50,9 @@ def get_market():
         st.session_state.market = {
             "prices": {a["id"]: ASSET_BASE_PRICE[a["id"]] for a in ASSET_CONFIG},
             "history": {a["id"]: [ASSET_BASE_PRICE[a["id"]]] for a in ASSET_CONFIG},
+            "history_t": {a["id"]: [time.time()] for a in ASSET_CONFIG},
             "last_tick": time.time(),
+            "news": [],   # [{"ts":..., "text":..., "asset":..., "impact":...}]
         }
     return st.session_state.market
 
@@ -59,15 +61,29 @@ def tick_market(min_interval_sec=15):
     m = get_market()
     if time.time() - m.get("last_tick", 0) < min_interval_sec:
         return m
+
+    # 20% 확률로 뉴스 이벤트 발생 (특정 자산에 추가 충격 부여)
+    news_event = None
+    if random.random() < 0.2:
+        news_event = random.choice(NEWS_TEMPLATES)
+        m["news"].insert(0, {"ts": time.time(), "text": news_event["text"],
+                              "asset": news_event["asset"], "impact": news_event["impact"]})
+        m["news"] = m["news"][:15]
+
+    now = time.time()
     for a in ASSET_CONFIG:
         aid, vol = a["id"], a["vol"]
         p = m["prices"][aid]
         change = random.gauss(0, vol)
+        if news_event and news_event["asset"] == aid:
+            change += news_event["impact"]
         new_p = max(100, p * (1 + change))
         m["prices"][aid] = round(new_p, 1)
         m["history"].setdefault(aid, []).append(round(new_p, 1))
-        m["history"][aid] = m["history"][aid][-60:]
-    m["last_tick"] = time.time()
+        m["history"][aid] = m["history"][aid][-80:]
+        m.setdefault("history_t", {}).setdefault(aid, []).append(now)
+        m["history_t"][aid] = m["history_t"][aid][-80:]
+    m["last_tick"] = now
     return m
 
 

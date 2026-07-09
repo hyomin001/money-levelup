@@ -3,7 +3,8 @@
 # 사용자의 소비/투자/저축 데이터를 Gemini에게 넘겨 개인화된 금융 코칭을 생성한다.
 import json
 import streamlit as st
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 SYSTEM_PROMPT = """\
 당신은 20~30대 사회초년생을 위한 다정하지만 냉정한 금융 코치입니다.
@@ -14,7 +15,7 @@ SYSTEM_PROMPT = """\
 - 비난하지 말고, 실행 가능한 다음 행동 1~3개를 제안할 것
 - 투자 포트폴리오가 특정 자산군에 쏠려 있으면 분산 관점에서 짚어줄 것
 - 저축이 전혀 없으면 비상금(생활비 3~6개월치)의 필요성을 언급할 것
-- 반드시 아래 JSON 형식으로만 응답 (다른 텍스트, 코드블록 마크다운 금지):
+- 반드시 아래 JSON 형식으로만 응답:
 
 {
   "summary": "한 줄 총평",
@@ -26,16 +27,11 @@ SYSTEM_PROMPT = """\
 """
 
 
-def _model():
+def _client():
     api_key = st.secrets.get("GEMINI_API_KEY", None)
     if not api_key:
         return None
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
-        system_instruction=SYSTEM_PROMPT,
-        generation_config={"response_mime_type": "application/json"},
-    )
+    return genai.Client(api_key=api_key)
 
 
 def get_financial_diagnosis(spending_by_category: dict, portfolio_summary: list, savings_total: int, cash: int):
@@ -43,8 +39,8 @@ def get_financial_diagnosis(spending_by_category: dict, portfolio_summary: list,
     spending_by_category: {"식비": 320000, "카페/간식": 150000, ...}
     portfolio_summary: [{"name": "KODEX 200 ETF", "value": 500000, "type": "ETF"}, ...]
     """
-    model = _model()
-    if model is None:
+    client = _client()
+    if client is None:
         return {
             "summary": "AI 코치를 사용하려면 secrets.toml에 GEMINI_API_KEY를 설정해주세요.",
             "spending_insight": "", "investing_insight": "",
@@ -59,7 +55,14 @@ def get_financial_diagnosis(spending_by_category: dict, portfolio_summary: list,
     }
 
     try:
-        resp = model.generate_content(json.dumps(payload, ensure_ascii=False))
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=json.dumps(payload, ensure_ascii=False),
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                response_mime_type="application/json",
+            ),
+        )
         text = resp.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         return json.loads(text)
     except Exception as e:
