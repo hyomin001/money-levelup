@@ -1,98 +1,121 @@
-# 💡 머니레벨업 (Money Level-Up)
+# utils/ai_coach.py
+# 지원서 "AI 활용 방법" 항목의 핵심 기능.
+# 사용자의 소비/투자/저축 데이터를 Gemini에게 넘겨 개인화된 금융 코칭을 생성한다.
+import json
+import streamlit as st
+from google import genai
+from google.genai import types
 
-사회초년생을 위한 AI 소비·투자 코칭 모의 서비스.
-K-AI Contents Award 솔루션 부문 제출용.
+SYSTEM_PROMPT = """\
+당신은 20~30대 사회초년생을 위한 다정하지만 냉정한 금융 코치입니다.
+사용자의 최근 소비 내역, 모의투자 포트폴리오, 저축 현황(JSON)을 보고 아래 형식으로 한국어 진단을 작성하세요.
 
-hyomin-portal(효민 포털)의 검증된 로직(금액 포맷 유틸 등)을 재사용하되,
-판타지 게임 요소(무기 강화, 가챠, 길드전 등)는 전부 제거하고
-현실적인 금액 단위와 실사용 가능한 UI로 새로 구성했습니다.
-로그인/DB 없이 세션 기반으로 동작해 심사위원이 URL 접속 즉시 바로 체험할 수 있습니다.
+규칙:
+- 숫자를 근거로 구체적으로 말할 것 (예: "카페 지출이 전체 소비의 22%")
+- 비난하지 말고, 실행 가능한 다음 행동 1~3개를 제안할 것
+- 투자 포트폴리오가 특정 자산군에 쏠려 있으면 분산 관점에서 짚어줄 것
+- 저축이 전혀 없으면 비상금(생활비 3~6개월치)의 필요성을 언급할 것
+- 반드시 아래 JSON 형식으로만 응답:
 
----
+{
+  "summary": "한 줄 총평",
+  "spending_insight": "소비 패턴 분석 2~3문장",
+  "investing_insight": "투자 포트폴리오 분석 2~3문장",
+  "action_items": ["실행 항목1", "실행 항목2", "실행 항목3"],
+  "risk_level": "낮음|보통|높음"
+}
+"""
 
-> **v3 변경사항 — 대대적 기능 확장**
-> - 자산 14종으로 확대 (국내/해외 ETF, 개별주, 채권, 원자재, 리츠, 디지털자산)
-> - 종목별 실시간 가격 차트(plotly) + 뉴스 이벤트 시스템 (가격에 실제 영향을 주는 시뮬레이션 뉴스)
-> - 순자산 추이 차트, 포트폴리오/소비 도넛차트
-> - **투자성향 진단 온보딩** — 4문항 설문을 Gemini가 분석해 추천 자산배분 제시 (AI 활용 기능 2번째 축)
-> - **목표 저축 트래커** — 목표 금액 대비 달성률 진행바
-> - **레벨/XP/뱃지 시스템** — 확률형 아이템이 아닌, 조건 충족 시 100% 확정 지급되는 습관 형성 배지
-> - **또래 평균 대비 소비 비교** — 통계청 가계동향조사 기반 추정 벤치마크와 내 소비 비중 비교
-> - 다크 테마 커스텀 CSS + 15초 자동 갱신(streamlit-autorefresh)
-> - 전체 기능을 Streamlit AppTest로 실행 테스트 완료 (매수/매도/지출기록/목표설정/온보딩 진단까지 예외 없이 동작 확인)
 
----
+def _client():
+    api_key = st.secrets.get("GEMINI_API_KEY", None)
+    if not api_key:
+        return None
+    return genai.Client(api_key=api_key)
 
-> **v2 변경사항**: 로그인/DB(MongoDB) 없이, 접속하면 바로 체험 가능한 데모 버전으로 단순화했습니다.
-> 모든 데이터는 브라우저 세션 안에서만 유지되며(새로고침 시 초기화), 필요한 secrets는
-> `GEMINI_API_KEY` 하나뿐입니다.
 
-## 1. 로컬 실행
+RISK_PROFILE_PROMPT = """\
+당신은 투자성향 진단 전문가입니다. 사용자가 5점 척도가 아닌 4개 문항(투자기간, 손실반응, 목표, 경험)에
+답한 점수 합계(4~12점)와 각 답변 내용을 보고, 아래 JSON 형식으로만 한국어로 응답하세요.
 
-```bash
-pip install -r requirements.txt
-mkdir -p .streamlit
-cp .streamlit/secrets.toml.example .streamlit/secrets.toml
-# secrets.toml 안의 GEMINI_API_KEY 채우기
-streamlit run app.py
-```
+- profile_name: "안정형" | "안정추구형" | "위험중립형" | "적극투자형" | "공격투자형" 중 점수에 맞는 하나
+  (4~5점: 안정형, 6~7점: 안정추구형, 8~9점: 위험중립형, 10~11점: 적극투자형, 12점: 공격투자형)
+- description: 이 성향에 대한 2~3문장 설명 (사용자의 답변 맥락을 반영)
+- recommended_allocation: {"주식/성장자산": 비중(%), "채권/안전자산": 비중(%), "현금성자산": 비중(%)} 형태,
+  총합 100이 되도록. 안정형일수록 채권/현금 비중을 높게, 공격투자형일수록 주식 비중을 높게.
+- caution: 이 성향의 사람이 특히 조심해야 할 점 1문장
 
-## 2. Streamlit Community Cloud 배포 (제출용 URL 만들기)
+응답은 반드시 아래 JSON 형식으로만:
+{
+  "profile_name": "...",
+  "description": "...",
+  "recommended_allocation": {"주식/성장자산": 0, "채권/안전자산": 0, "현금성자산": 0},
+  "caution": "..."
+}
+"""
 
-1. 이 폴더를 GitHub 레포로 push
-2. https://share.streamlit.io 에서 New app → 레포 선택 → main file: `app.py`
-3. App settings → Secrets 에 아래 한 줄만 채워서 붙여넣기
-   ```toml
-   GEMINI_API_KEY = "실제발급받은키"
-   ```
-   (aistudio.google.com/apikey 에서 무료 발급. 없어도 앱은 돌아가고 AI 코치 탭만 비활성 메시지가 뜹니다)
-4. Deploy → 나온 `https://xxxx.streamlit.app` URL을 공모전 지원서에 제출
 
----
+def get_risk_profile(answers: list):
+    """answers: [{"q": 질문, "answer": 선택한 라벨, "score": 점수}, ...]"""
+    client = _client()
+    total_score = sum(a["score"] for a in answers)
+    if client is None:
+        return {
+            "profile_name": "진단 불가",
+            "description": "AI 코치를 사용하려면 secrets.toml에 GEMINI_API_KEY를 설정해주세요.",
+            "recommended_allocation": {}, "caution": "",
+        }
+    try:
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=json.dumps({"total_score": total_score, "answers": answers}, ensure_ascii=False),
+            config=types.GenerateContentConfig(
+                system_instruction=RISK_PROFILE_PROMPT,
+                response_mime_type="application/json",
+            ),
+        )
+        text = resp.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        return json.loads(text)
+    except Exception as e:
+        return {
+            "profile_name": "오류",
+            "description": f"진단 생성 중 오류가 발생했습니다: {e}",
+            "recommended_allocation": {}, "caution": "",
+        }
+def get_financial_diagnosis(spending_by_category: dict, portfolio_summary: list, savings_total: int, cash: int):
+    """
+    spending_by_category: {"식비": 320000, "카페/간식": 150000, ...}
+    portfolio_summary: [{"name": "KODEX 200 ETF", "value": 500000, "type": "ETF"}, ...]
+    """
+    client = _client()
+    if client is None:
+        return {
+            "summary": "AI 코치를 사용하려면 secrets.toml에 GEMINI_API_KEY를 설정해주세요.",
+            "spending_insight": "", "investing_insight": "",
+            "action_items": [], "risk_level": "-",
+        }
 
-## 3. 지원서 작성용 초안
+    payload = {
+        "cash": cash,
+        "spending_by_category": spending_by_category,
+        "portfolio": portfolio_summary,
+        "savings_total": savings_total,
+    }
 
-### 어떤 불편함을 해결하려 했는가
-사회초년생·자취생은 소비 습관과 투자 지식이 미분리된 상태로 "일단 벌고 일단 쓰는" 패턴에
-빠지기 쉽습니다. 가계부 앱은 기록만 해주고, 증권 앱은 실전 투자만 다뤄서, 두 데이터를
-연결해 "내가 지금 재정적으로 어떤 상태인지" 종합적으로 알려주는 도구가 없습니다.
-머니레벨업은 모의투자·가계부·예적금 데이터를 한 곳에 모으고, AI가 이를 종합 진단해
-실행 가능한 다음 행동을 제안합니다.
-
-### AI를 어떻게 활용했는가
-1. **투자성향 진단 (온보딩)**: 4문항 설문(투자기간/손실반응/목표/경험) 답변을 Gemini에게 전달해
-   안정형~공격투자형 중 성향을 분류하고, 성향별 추천 자산배분(주식/채권/현금 비중)을 JSON으로 생성.
-   사용자가 처음 접속했을 때 "나는 어떤 투자자인가"를 스스로 인지하게 만드는 역할.
-2. **재무 진단 (AI 코치)**: 사용자의 최근 소비 내역(카테고리별 합계), 모의투자 포트폴리오(자산군별 평가액),
-   저축 현황을 JSON으로 구조화해 Gemini API에 전달. AI가 이를 분석해 ①소비 패턴 진단
-   ②포트폴리오 분산 여부 ③비상금 필요성 ④실행 가능한 행동 3가지를 JSON 스키마로 반환.
-
-두 기능 모두 단순 챗봇형 Q&A가 아니라, 정형 데이터 → 구조화된 진단 리포트를 만드는 방식으로
-"숫자 뒤에 숨은 습관과 성향"을 사용자가 스스로 읽게 만드는 데 초점을 뒀습니다.
-
-### 핵심 프롬프트 (`utils/ai_coach.py` SYSTEM_PROMPT 발췌)
-> 사용자의 최근 소비 내역, 모의투자 포트폴리오, 저축 현황(JSON)을 보고
-> 숫자를 근거로 구체적으로 말하고, 비난하지 않고 실행 가능한 다음 행동을 제안하며,
-> 특정 자산군에 쏠려 있으면 분산 관점에서 짚어주고, 저축이 없으면 비상금의
-> 필요성을 언급하도록 지시. 응답은 반드시 고정 JSON 스키마로 반환.
-
-(전체 프롬프트는 `utils/ai_coach.py` 참고)
-
----
-
-## 4. 폴더 구조
-
-```
-app.py                  메인 앱 (대시보드/모의투자/가계부/예적금/AI코치 탭)
-utils/config.py         자산·소비카테고리·예적금 상품 설정 (현실적 금액 단위)
-utils/core.py           인증, 금액 포맷, 시세 랜덤워크, 순자산 계산
-utils/ai_coach.py       Gemini API 호출 — AI 진단 생성 (공모전 핵심 기능)
-```
-
-## 5. 제출 전 체크리스트
-
-- [ ] Streamlit Cloud 배포 후 URL 접속 테스트 (모의투자 → 가계부 → AI 진단까지 한 번 실행)
-- [ ] GEMINI_API_KEY 유효성 확인 (AI 코치 탭에서 실제로 진단이 나오는지)
-- [ ] 지원서에 위 3번 섹션 내용 반영
-- [ ] 데모 시연용으로 미리 몇 건의 소비/투자 기록을 넣어둔 테스트 계정 하나 준비
-      (심사위원이 빈 화면만 보고 판단하지 않도록)
+    try:
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=json.dumps(payload, ensure_ascii=False),
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                response_mime_type="application/json",
+            ),
+        )
+        text = resp.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        return json.loads(text)
+    except Exception as e:
+        return {
+            "summary": f"진단 생성 중 오류가 발생했습니다: {e}",
+            "spending_insight": "", "investing_insight": "",
+            "action_items": [], "risk_level": "-",
+        }
