@@ -1,32 +1,12 @@
 # utils/core.py
-import hashlib
+# 로그인/DB 없이, 브라우저 세션 안에서만 동작하는 버전.
+# (제출/데모용 — 새로고침하거나 다른 사람이 열면 데이터는 초기화됩니다)
 import time
 import random
-import os
-import bcrypt
 import streamlit as st
 from utils.config import ASSET_CONFIG, ASSET_BASE_PRICE, STARTING_CASH
-from utils.database import load_db, save_db
-
-MARKET_KEY = "market"
-USERS_KEY = "users"
 
 
-# ── 비밀번호 해싱 (hyomin-portal core.py 패턴 재사용) ────────────────────────
-def hash_pw_bcrypt(pw: str) -> str:
-    return bcrypt.hashpw(pw.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
-
-
-def verify_pw(pw: str, stored_hash: str) -> bool:
-    if not stored_hash or not isinstance(stored_hash, str):
-        return False
-    try:
-        return bcrypt.checkpw(pw.encode('utf-8'), stored_hash.encode('utf-8'))
-    except Exception:
-        return False
-
-
-# ── 금액 포맷 (hyomin-portal utils/core.py 의 format_korean_money 그대로 재사용) ──
 def format_korean_money(num):
     try:
         if num is None or num != num or num == 0:
@@ -45,67 +25,37 @@ def format_korean_money(num):
     return f"-{res}" if is_neg else res
 
 
-# ── 유저 ──────────────────────────────────────────────────────────────────
-def default_user(uid):
-    return {
-        "uid": uid, "created": time.time(),
-        "cash": STARTING_CASH,
-        "portfolio": {},          # {asset_id: {"qty": int, "avg_price": float}}
-        "savings": [],            # [{"product_id":..,"amount":..,"start":..,"maturity":..}]
-        "expense_total": 0,
-    }
+# ── 세션 유저 (로그인 없음, 세션당 1명) ──────────────────────────────────────
+def get_user():
+    if "user" not in st.session_state:
+        st.session_state.user = {
+            "cash": STARTING_CASH,
+            "portfolio": {},   # {asset_id: {"qty": int, "avg_price": float}}
+            "savings": [],
+            "tx_log": [],      # [{kind, ...}, ...]
+        }
+    return st.session_state.user
 
 
-def get_user(uid):
-    users = load_db(USERS_KEY, {})
-    if uid not in users:
-        users[uid] = default_user(uid)
-        save_db(USERS_KEY, users)
-    return users[uid]
+def log_tx(tx: dict):
+    user = get_user()
+    tx = {**tx, "ts": time.time()}
+    user["tx_log"].insert(0, tx)
+    user["tx_log"] = user["tx_log"][:200]
 
 
-def save_user(uid, user_data):
-    users = load_db(USERS_KEY, {})
-    users[uid] = user_data
-    save_db(USERS_KEY, users)
-
-
-def signup(uid, pw):
-    users = load_db(USERS_KEY, {})
-    if uid in users:
-        return False, "이미 존재하는 아이디입니다."
-    u = default_user(uid)
-    u["pw_hash"] = hash_pw_bcrypt(pw)
-    users[uid] = u
-    save_db(USERS_KEY, users)
-    return True, "가입 완료"
-
-
-def login(uid, pw):
-    users = load_db(USERS_KEY, {})
-    if uid not in users:
-        return False, "존재하지 않는 아이디입니다."
-    if not verify_pw(pw, users[uid].get("pw_hash", "")):
-        return False, "비밀번호가 일치하지 않습니다."
-    return True, "로그인 성공"
-
-
-# ── 시세 (랜덤워크 시뮬레이션 — 실시간 실제 시세 연동 아님, UI에 고지) ────────────
+# ── 시세 (세션 안에서 랜덤워크 시뮬레이션) ───────────────────────────────────
 def get_market():
-    m = load_db(MARKET_KEY, {})
-    if not m or m.get("version") != 1:
-        m = {
-            "version": 1,
+    if "market" not in st.session_state:
+        st.session_state.market = {
             "prices": {a["id"]: ASSET_BASE_PRICE[a["id"]] for a in ASSET_CONFIG},
             "history": {a["id"]: [ASSET_BASE_PRICE[a["id"]]] for a in ASSET_CONFIG},
             "last_tick": time.time(),
         }
-        save_db(MARKET_KEY, m)
-    return m
+    return st.session_state.market
 
 
-def tick_market(min_interval_sec=30):
-    """일정 주기마다 가격을 소폭 랜덤워크로 갱신."""
+def tick_market(min_interval_sec=15):
     m = get_market()
     if time.time() - m.get("last_tick", 0) < min_interval_sec:
         return m
@@ -118,7 +68,6 @@ def tick_market(min_interval_sec=30):
         m["history"].setdefault(aid, []).append(round(new_p, 1))
         m["history"][aid] = m["history"][aid][-60:]
     m["last_tick"] = time.time()
-    save_db(MARKET_KEY, m)
     return m
 
 
