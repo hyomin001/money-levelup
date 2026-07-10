@@ -99,10 +99,11 @@ def get_risk_profile(answers: list):
         }
 
 
-def get_financial_diagnosis(spending_by_category: dict, portfolio_summary: list, savings_total: int, cash: int):
+def get_financial_diagnosis(spending_by_category: dict, portfolio_summary: list, savings_total: int, real_cash: int):
     """
     spending_by_category: {"식비": 320000, "카페/간식": 150000, ...}
     portfolio_summary: [{"name": "KODEX 200 ETF", "value": 500000, "type": "ETF"}, ...]
+    real_cash: 실제 지갑 잔액 (모의투자 잔고는 별도이며 여기 포함되지 않음)
     """
     client = _client()
     if client is None:
@@ -114,7 +115,7 @@ def get_financial_diagnosis(spending_by_category: dict, portfolio_summary: list,
         }
 
     payload = {
-        "cash": cash,
+        "real_cash": real_cash,
         "spending_by_category": spending_by_category,
         "portfolio": portfolio_summary,
         "savings_total": savings_total,

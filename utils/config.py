@@ -5,7 +5,8 @@ from datetime import timezone, timedelta
 os.environ['TZ'] = 'Asia/Seoul'
 KST = timezone(timedelta(hours=9))
 
-STARTING_CASH = 3_000_000  # 신규 유저 시작 자금: 300만원 (현실적인 사회초년생 종잣돈 규모)
+STARTING_MOCK_CASH = 3_000_000  # 모의투자 전용 가상 시드머니 (실제 자금과 완전히 분리됨)
+STARTING_REAL_CASH = 0          # 실제 자금(가계부/예적금)은 0원부터 시작 — "수입 추가"로 직접 채워나갑니다
 
 # 📈 모의투자 종목 — 실제 자산군을 본뜬 가상 티커, 가격은 현실적인 원 단위
 # (실제 시세 연동이 아닌 랜덤워크+뉴스이벤트 시뮬레이션이며, 앱 내에 명시)
@@ -48,6 +49,14 @@ EXPENSE_CATEGORIES = [
     {"id": "leisure",    "name": "여가/문화",    "icon": "🎮", "color": "#7986CB"},
     {"id": "health",     "name": "의료/건강",    "icon": "💊", "color": "#4DB6AC"},
     {"id": "etc",        "name": "기타",        "icon": "✏️", "color": "#90A4AE"},
+]
+
+# 💵 수입 카테고리 (가계부 "수입 추가" 기능용 — 실제 자금을 채워 넣는 용도)
+INCOME_CATEGORIES = [
+    {"id": "salary",  "name": "월급/근로소득", "icon": "💼"},
+    {"id": "allowance","name": "용돈",         "icon": "🎁"},
+    {"id": "side",    "name": "부수입/알바",   "icon": "🧾"},
+    {"id": "etc_in",  "name": "기타 수입",     "icon": "➕"},
 ]
 
 # 20~30대 1인가구 평균 소비 비중 벤치마크 (통계청 가계동향조사 기반 추정치, 데모용 근사값)

@@ -8,8 +8,8 @@ from datetime import date, timedelta
 import streamlit as st
 
 from utils.config import (
-    ASSET_CONFIG, ASSET_BASE_PRICE, STARTING_CASH, NEWS_TEMPLATES, BADGES, LEVEL_XP_TABLE,
-    EXPENSE_CATEGORIES, ORDERBOOK_LEVELS, ORDERBOOK_TICK_RATIO,
+    ASSET_CONFIG, ASSET_BASE_PRICE, STARTING_MOCK_CASH, STARTING_REAL_CASH,
+    NEWS_TEMPLATES, BADGES, LEVEL_XP_TABLE, EXPENSE_CATEGORIES, ORDERBOOK_LEVELS, ORDERBOOK_TICK_RATIO,
 )
 from utils.database import load_doc, save_doc, db_available
 
@@ -35,17 +35,18 @@ def format_korean_money(num):
 # ── 유저 (이름+출생연도 키, DB 연결 시 지속됨 / 미연결 시 세션에만 유지) ─────────
 def default_user():
     return {
-        "cash": STARTING_CASH,
-        "portfolio": {},        # {asset_id: {"qty": int, "avg_price": float}}
-        "savings": [],          # [{id,name,icon,start,end,months,target_amount,rate,amount,created}, ...]
-        "tx_log": [],           # [{kind, ...}, ...]
+        "real_cash": STARTING_REAL_CASH,   # 실제 자금 (가계부/예적금 전용)
+        "mock_cash": STARTING_MOCK_CASH,   # 모의투자 전용 가상 시드머니
+        "portfolio": {},        # {asset_id: {"qty": int, "avg_price": float}}  ※ 모의투자 전용
+        "savings": [],          # [{id,name,icon,start,end,months,target_amount,rate,amount,created}, ...]  ※ 실제 자금
+        "tx_log": [],           # [{id, kind, ...}, ...]
         "xp": 0,
         "badges": [],           # [badge_id, ...]
         "goal": None,           # {"name":..., "target":..., "created":..., "completed": bool}
         "completed_goals_count": 0,
         "risk_profile": None,   # AI 온보딩 진단 결과
         "ai_coach_count": 0,
-        "nw_history": [],       # [{"ts":..., "value":...}] 순자산 추이
+        "nw_history": [],       # [{"ts":..., "value":...}] 순자산 추이 (실제+모의 합산, 게임 지표용)
     }
 
 
@@ -53,22 +54,49 @@ def get_user(uid: str):
     if "user" not in st.session_state:
         loaded = load_doc("users", uid, None)
         user = loaded if loaded else default_user()
-        # 이전 버전 데이터 호환: 새로 추가된 필드가 없으면 채워준다.
+        # ── 이전 버전 데이터 마이그레이션 ──
+        # 구버전은 "cash" 하나로 실제자금/모의투자를 같이 썼음. 있으면 1회 분리한다.
+        if "cash" in user:
+            old_cash = user.pop("cash")
+            user.setdefault("mock_cash", old_cash)   # 기존 잔액은 모의투자 쪽에 보존
+            user.setdefault("real_cash", STARTING_REAL_CASH)
+        # 새로 추가된 필드가 없으면 채워준다.
         for k, v in default_user().items():
             user.setdefault(k, v)
         st.session_state.user = user
     return st.session_state.user
 
 
-def save_user(uid: str, user: dict):
-    if db_available():
-        save_doc("users", uid, user)
+def save_user(uid: str, user: dict) -> bool:
+    if not db_available():
+        return False
+    return save_doc("users", uid, user)
 
 
 def log_tx(user: dict, tx: dict):
-    tx = {**tx, "ts": time.time()}
+    tx = {"id": uuid.uuid4().hex[:10], "ts": time.time(), **tx}
     user["tx_log"].insert(0, tx)
     user["tx_log"] = user["tx_log"][:300]
+    return tx["id"]
+
+
+def delete_tx(user: dict, tx_id: str):
+    """가계부 기록 삭제. 지출/수입 기록이었다면 real_cash를 원래대로 되돌려준다."""
+    tx = next((t for t in user["tx_log"] if t.get("id") == tx_id), None)
+    if tx is None:
+        return False
+    if tx.get("kind") == "expense":
+        user["real_cash"] = user.get("real_cash", 0) + tx.get("amount", 0)
+    elif tx.get("kind") == "income":
+        user["real_cash"] = user.get("real_cash", 0) - tx.get("amount", 0)
+    user["tx_log"] = [t for t in user["tx_log"] if t.get("id") != tx_id]
+    return True
+
+
+def add_income(user: dict, category: str, amount: int, memo: str = ""):
+    """실제 수입을 기록하고 real_cash를 늘린다."""
+    user["real_cash"] = user.get("real_cash", 0) + amount
+    return log_tx(user, {"kind": "income", "category": category, "amount": amount, "memo": memo})
 
 
 # ── XP / 레벨 / 뱃지 (확률 없는 100% 확정 지급형 성취 시스템) ─────────────────
@@ -317,12 +345,24 @@ def tick_market(min_interval_sec=15):
     return m
 
 
+def real_net_worth(user):
+    """실제로 관리하는 돈 (실제 지갑 + 저축 총액). 모의투자는 포함하지 않는다."""
+    return user.get("real_cash", 0) + total_saving_amount(user)
+
+
+def mock_portfolio_value(user, market):
+    """모의투자 보유 종목의 현재 평가액 합계 (현금 제외)."""
+    return sum(pos.get("qty", 0) * market["prices"].get(aid, 0) for aid, pos in user.get("portfolio", {}).items())
+
+
+def mock_total_value(user, market):
+    """모의투자 계좌 총액 (모의 현금 + 평가액). 연습용이며 실제 자산이 아니다."""
+    return user.get("mock_cash", 0) + mock_portfolio_value(user, market)
+
+
 def get_net_worth(user, market):
-    w = user.get("cash", 0)
-    for aid, pos in user.get("portfolio", {}).items():
-        w += pos.get("qty", 0) * market["prices"].get(aid, 0)
-    w += total_saving_amount(user)
-    return w
+    """게임 지표(뱃지/레벨)용 종합 점수 — 실제 자금 + 모의투자를 합산. 대시보드 표시는 반드시 분리해서 보여줄 것."""
+    return real_net_worth(user) + mock_total_value(user, market)
 
 
 def record_net_worth_point(user, market):
@@ -331,5 +371,6 @@ def record_net_worth_point(user, market):
     now = time.time()
     if hist and now - hist[-1]["ts"] < 10:
         return
-    hist.append({"ts": now, "value": get_net_worth(user, market)})
+    hist.append({"ts": now, "value": get_net_worth(user, market),
+                 "real": real_net_worth(user), "mock": mock_total_value(user, market)})
     user["nw_history"] = hist[-200:]
