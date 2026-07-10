@@ -48,172 +48,212 @@ def relative_time(ts):
 PLOTLY_DARK = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(color="#CBD5E1", family="Noto Sans KR, sans-serif"),
+    font=dict(color="#3C4A40", family="Noto Sans KR, sans-serif"),
     margin=dict(l=10, r=10, t=10, b=10),
 )
 
+UP_COLOR, DOWN_COLOR = "#B8442F", "#2F5D8A"      # 국내 시세 관행: 상승=빨강, 하락=파랑
+GAIN_COLOR, LOSS_COLOR = "#0E7C5A", "#B8442F"     # 순자산 추이: 늘면 초록, 줄면 빨강
+PIE_COLORS = ["#0E7C5A", "#B8862F", "#2F5D8A", "#B8442F", "#6B8F71", "#8C6D46", "#4C7A6B", "#9AA5C0"]
+
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;800&family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700;900&family=Noto+Sans+KR:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;600;700&display=swap');
 
-.stApp { background: radial-gradient(1200px 800px at 10% -10%, #14142A 0%, #0A0A12 55%); }
-h1, h2, h3, h4 { font-family: 'Noto Sans KR', sans-serif !important; }
+:root {
+    --paper: #F3F6EF; --paper-2: #FFFDF8; --ink: #1C2B24; --ink-soft: #5B6B60;
+    --line: #DCE6D8; --brand: #0E7C5A; --brand-deep: #0A5A40; --brand-soft: #E4F1EA;
+    --gold: #A9791F; --gold-soft: #F6EBD3; --coral: #B8442F; --coral-soft: #F8E7E2;
+    --navy: #2F3F5C; --navy-soft: #E6EAF2;
+}
 
-/* 기본 텍스트 대비 보정 (다크 테마 위 회색 텍스트가 배경에 묻히지 않도록) */
+.stApp {
+    background:
+        linear-gradient(0deg, rgba(14,124,90,0.05) 1px, transparent 1px) 0 0/100% 27px,
+        var(--paper);
+}
+h1, h2, h3, h4 { font-family: 'Noto Serif KR', serif !important; color: var(--ink) !important; letter-spacing: .2px; }
 .stMarkdown, .stMarkdown p, .stMarkdown li, label, .stCaption, p, span, div[data-testid="stText"] {
-    color: #E7EAF6;
+    color: var(--ink); font-family: 'Noto Sans KR', sans-serif;
 }
-.stApp small, .stCaption, [data-testid="stCaptionContainer"] { color: #97A0C0 !important; }
+.stApp small, .stCaption, [data-testid="stCaptionContainer"] { color: var(--ink-soft) !important; }
+[data-testid="stSidebar"] { background: var(--paper-2); border-right: 1px solid var(--line); }
+hr { border-color: var(--line) !important; }
 
-/* 상단 타이틀 그라디언트 */
+/* 상단 통장 표지 (hero) */
 .ml-hero {
-    background: linear-gradient(135deg,#1B1B36,#0D0D18);
-    border: 1px solid #2A2A50; border-radius: 20px;
-    padding: 24px 28px; margin-bottom: 14px;
-    box-shadow: 0 8px 30px rgba(76,90,255,0.08);
+    position: relative; overflow: hidden;
+    background: linear-gradient(155deg, var(--brand-deep) 0%, #0D3F2E 60%, #0A2E22 100%);
+    border-radius: 20px; padding: 26px 30px; margin-bottom: 14px;
+    box-shadow: 0 16px 32px -16px rgba(10,58,42,0.55);
 }
-.ml-hero h1 { margin: 0; font-size: 1.8rem; color: #F1F3FC; }
-.ml-hero p  { margin: 6px 0 0 0; color: #9AA5C0; font-size: 0.9rem; }
+.ml-hero::before {
+    content: ""; position: absolute; inset: 0;
+    background: repeating-linear-gradient(115deg, rgba(255,255,255,0.05) 0 2px, transparent 2px 22px);
+    pointer-events: none;
+}
+.ml-hero::after {
+    content: ""; position: absolute; inset: 9px; border-radius: 13px;
+    border: 1px dashed rgba(244,241,228,0.28); pointer-events: none;
+}
+.ml-hero .eyebrow {
+    position: relative; font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
+    letter-spacing: 2px; color: #C9A24B; text-transform: uppercase; margin-bottom: 6px;
+}
+.ml-hero h1 { position: relative; margin: 0; font-size: 1.85rem; color: #F5F1E4 !important; font-weight: 900; }
+.ml-hero p  { position: relative; margin: 6px 0 0 0; color: rgba(245,241,228,0.72); font-size: 0.92rem; }
 
 /* 뉴스 티커 */
 .ticker-wrap {
-    overflow: hidden; white-space: nowrap;
-    background: #0D0D18; border: 1px solid #23233B;
-    border-radius: 10px; padding: 9px 0; margin-bottom: 16px;
+    overflow: hidden; white-space: nowrap; display: flex; align-items: center;
+    background: var(--paper-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 0; margin-bottom: 16px;
 }
-.ticker-inner { display: inline-block; animation: ticker-scroll 26s linear infinite; }
+.ticker-tag {
+    flex-shrink: 0; font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; font-weight: 700;
+    letter-spacing: 1.5px; color: #fff; background: var(--brand); padding: 9px 12px; border-radius: 10px 0 0 10px;
+}
+.ticker-scroll { overflow: hidden; flex: 1; padding: 9px 0; }
+.ticker-inner { display: inline-block; animation: ticker-scroll 28s linear infinite; padding-left: 14px; }
 .ticker-inner:hover { animation-play-state: paused; }
 @keyframes ticker-scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
-.ticker-item { display: inline-flex; align-items: center; gap: 8px; margin-right: 46px; font-size: 0.83rem; color: #9AA5C0; }
-.ticker-item b { color: #E7EAF6; }
+.ticker-item { display: inline-flex; align-items: center; gap: 8px; margin-right: 42px; font-size: 0.83rem; color: var(--ink-soft); }
+.ticker-item b { color: var(--ink); }
 
 /* 카드형 metric */
 div[data-testid="stMetric"] {
-    background: #12121F; border: 1px solid #23233B; border-radius: 14px;
-    padding: 14px 16px;
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 16px; box-shadow: 0 1px 2px rgba(28,43,36,0.04);
 }
-div[data-testid="stMetricLabel"] { color: #97A0C0 !important; }
-div[data-testid="stMetricValue"] { color: #F1F3FC !important; }
+div[data-testid="stMetricLabel"] { color: var(--ink-soft) !important; }
+div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'IBM Plex Mono', monospace !important; }
 
-/* 자산 카드 */
+/* 자산 카드 (원장 스타일) */
 .asset-card {
-    background: #10101C; border: 1px solid #1E2035; border-radius: 14px;
-    padding: 12px 14px; margin-bottom: 6px; transition: border-color .2s;
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; margin-bottom: 6px; transition: border-color .2s, transform .15s;
 }
-.asset-card:hover { border-color: #4C5AFF; }
-.asset-card .a-name { font-size: 0.8rem; color: #97A0C0; }
-.asset-card .a-price { font-family: 'Orbitron', monospace; font-size: 1.05rem; color: #F1F3FC; font-weight: 700; }
-.up   { color: #FF5C6E !important; }
-.down { color: #4C8DFF !important; }
+.asset-card:hover { border-color: var(--brand); transform: translateY(-1px); }
+.asset-card .a-name { font-size: 0.8rem; color: var(--ink-soft); }
+.asset-card .a-price { font-family: 'IBM Plex Mono', monospace; font-size: 1.05rem; color: var(--ink); font-weight: 700; }
+.up   { color: var(--coral) !important; font-family: 'IBM Plex Mono', monospace; }
+.down { color: var(--navy) !important; font-family: 'IBM Plex Mono', monospace; }
 
 /* 뉴스 카드 */
-.news-item { border-left: 3px solid #3D4270; padding: 6px 12px; margin-bottom: 6px; background: #10101C; border-radius: 0 8px 8px 0; }
-.news-item .n-time { font-size: 0.72rem; color: #6C7592; }
-.news-item .n-text { font-size: 0.85rem; color: #D7DBEE; }
+.news-item { border-left: 3px solid var(--brand); padding: 6px 12px; margin-bottom: 6px;
+    background: var(--paper-2); border: 1px solid var(--line); border-left-width: 3px; border-radius: 0 8px 8px 0; }
+.news-item .n-time { font-size: 0.72rem; color: var(--ink-soft); font-family: 'IBM Plex Mono', monospace; }
+.news-item .n-text { font-size: 0.85rem; color: var(--ink); }
 
-/* 호가창 */
-.ob-wrap { border: 1px solid #23233B; border-radius: 12px; overflow: hidden; background: #0D0D18; }
-.ob-row { position: relative; display: flex; justify-content: space-between; padding: 4px 12px; font-size: 0.8rem;
-    font-family: 'Orbitron', monospace; overflow: hidden; }
-.ob-row.ask { color: #7EB8FF; } .ob-row.bid { color: #FF8FA3; }
-.ob-bar { position: absolute; right: 0; top: 0; bottom: 0; background: currentColor; opacity: 0.14; }
+/* 호가창 (원장 테이블) */
+.ob-wrap { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--paper-2); }
+.ob-row { position: relative; display: flex; justify-content: space-between; padding: 5px 12px; font-size: 0.8rem;
+    font-family: 'IBM Plex Mono', monospace; overflow: hidden; }
+.ob-row.ask { color: var(--navy); } .ob-row.bid { color: var(--coral); }
+.ob-bar { position: absolute; right: 0; top: 0; bottom: 0; background: currentColor; opacity: 0.10; }
 .ob-row span { position: relative; z-index: 1; }
-.ob-cur { text-align: center; padding: 6px; background: #191A38; font-weight: 800; color: #F1F3FC;
-    font-size: 0.88rem; border-top: 1px solid #2A2A50; border-bottom: 1px solid #2A2A50; letter-spacing: .3px; }
-.ob-caption { font-size: 0.7rem; color: #6C7592; text-align: center; padding: 4px 0 0 0; }
+.ob-cur { text-align: center; padding: 7px; background: var(--gold-soft); font-weight: 700; color: var(--gold);
+    font-family: 'IBM Plex Mono', monospace; font-size: 0.86rem;
+    border-top: 1px dashed #D8C08A; border-bottom: 1px dashed #D8C08A; letter-spacing: .3px; }
+.ob-caption { font-size: 0.7rem; color: var(--ink-soft); text-align: center; padding: 4px 0 0 0; }
 
-/* 뱃지 카드 */
-.badge-card { text-align:center; border-radius: 14px; padding: 14px 8px; margin-bottom: 10px; }
-.badge-card.earned { background: linear-gradient(160deg,#22245A,#181933); border: 1px solid #4C5AFF;
-    box-shadow: 0 0 16px rgba(76,90,255,0.18); }
-.badge-card.locked { background: #101018; border: 1px solid #1E2035; opacity: 0.4; }
-.badge-card .b-icon { font-size: 1.7rem; }
-.badge-card .b-name { font-size: 0.78rem; color: #F1F3FC; font-weight: 700; margin-top: 4px; }
-.badge-card .b-desc { font-size: 0.68rem; color: #8891A8; margin-top: 2px; min-height: 26px; }
-.badge-card .b-xp { font-size: 0.65rem; color: #7EB8FF; margin-top: 3px; }
+/* ── 뱃지: 도장(스탬프) ── */
+.stamp-cell { text-align: center; padding: 10px 6px 14px 6px; margin-bottom: 6px; }
+.stamp-circle {
+    width: 62px; height: 62px; border-radius: 50%; margin: 0 auto 8px auto; position: relative;
+    display: flex; align-items: center; justify-content: center;
+    border: 2.5px solid var(--line); background: var(--paper-2);
+}
+.stamp-circle::after {
+    content: ""; position: absolute; inset: 5px; border-radius: 50%; border: 1px dashed var(--line);
+}
+.stamp-circle.earned { border-color: var(--brand); background: var(--brand-soft);
+    box-shadow: 0 2px 0 rgba(14,124,90,0.18); }
+.stamp-circle.earned::after { border-color: rgba(14,124,90,0.4); }
+.stamp-circle.locked { opacity: 0.42; filter: grayscale(1); }
+.stamp-icon { font-size: 1.55rem; position: relative; }
+.stamp-name { font-family: 'Noto Serif KR', serif; font-weight: 700; font-size: 0.78rem; color: var(--ink); }
+.stamp-desc { font-size: 0.66rem; color: var(--ink-soft); margin-top: 2px; min-height: 28px; }
+.stamp-xp { font-family: 'IBM Plex Mono', monospace; font-size: 0.63rem; color: var(--gold); margin-top: 3px; }
 
-/* 레벨 바 */
-.level-badge { display:inline-flex; align-items:center; gap:8px; background:#12121F; border:1px solid #23233B;
-    border-radius: 999px; padding: 6px 14px; font-size: 0.82rem; color:#F1F3FC; }
+/* 레벨 배지 */
+.level-badge { display:inline-flex; align-items:center; gap:8px; background: var(--paper-2); border:1px solid var(--gold);
+    border-radius: 999px; padding: 6px 14px; font-size: 0.82rem; color: var(--ink); font-family:'IBM Plex Mono',monospace; }
 
 /* 온보딩 카드 */
-.onb-card { background:#10101C; border:1px solid #1E2035; border-radius:16px; padding:20px; margin-bottom:14px; }
+.onb-card { background: var(--paper-2); border:1px solid var(--line); border-radius:16px; padding:20px; margin-bottom:14px; }
 
 /* ── 가계부: 카테고리 선택 pill ── */
-.stButton > button {
-    border-radius: 12px !important;
-}
+.stButton > button { border-radius: 10px !important; }
 .cat-pill-active button {
-    background: linear-gradient(135deg,#4C5AFF,#7C8CFF) !important;
-    border: 1px solid #7C8CFF !important; color: white !important; font-weight: 700 !important;
+    background: var(--brand) !important; border: 1px solid var(--brand-deep) !important;
+    color: white !important; font-weight: 700 !important; box-shadow: 0 3px 0 var(--brand-deep) !important;
 }
 
-/* 지출 카드 (귀엽게) */
+/* 지출 카드 (원장 줄 스타일) */
 .exp-card {
     display:flex; align-items:center; gap:12px;
-    background: #12121F; border: 1px solid #23233B; border-left: 4px solid var(--accent, #7C8CFF);
-    border-radius: 14px; padding: 10px 14px; margin-bottom: 8px;
+    background: var(--paper-2); border: 1px solid var(--line); border-left: 4px solid var(--accent, #7C8CFF);
+    border-radius: 12px; padding: 10px 14px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(28,43,36,0.04);
 }
 .exp-card .exp-icon { font-size: 1.4rem; }
 .exp-card .exp-main { flex: 1; }
-.exp-card .exp-cat { font-size: 0.78rem; color: #97A0C0; }
-.exp-card .exp-memo { font-size: 0.85rem; color: #E7EAF6; font-weight: 600; }
-.exp-card .exp-amt { font-family:'Orbitron',monospace; font-weight:700; color:#FF8FA3; }
-.exp-card .exp-time { font-size: 0.68rem; color: #6C7592; margin-top: 2px; }
+.exp-card .exp-cat { font-size: 0.78rem; color: var(--ink-soft); }
+.exp-card .exp-memo { font-size: 0.85rem; color: var(--ink); font-weight: 600; }
+.exp-card .exp-amt { font-family:'IBM Plex Mono',monospace; font-weight:700; color: var(--coral); }
+.exp-card .exp-time { font-size: 0.68rem; color: var(--ink-soft); margin-top: 2px; }
 
 /* ── 목표저축 / 예적금 카드 ── */
 .goal-hero {
-    background: linear-gradient(135deg,#241B3D,#141433);
-    border: 1px solid #3D2E6B; border-radius: 18px; padding: 20px 22px; margin-bottom: 12px;
+    background: linear-gradient(135deg, var(--brand-soft), var(--paper-2));
+    border: 1px solid var(--brand); border-radius: 18px; padding: 20px 22px; margin-bottom: 12px;
 }
-.goal-hero .g-name { font-size: 1.15rem; font-weight: 800; color: #F1F3FC; }
-.goal-hero .g-sub { font-size: 0.8rem; color: #B7A9E8; margin-top: 2px; }
+.goal-hero .g-name { font-family: 'Noto Serif KR', serif; font-size: 1.15rem; font-weight: 800; color: var(--brand-deep); }
+.goal-hero .g-sub { font-size: 0.82rem; color: var(--ink-soft); margin-top: 3px; font-family: 'IBM Plex Mono', monospace; }
 
 .sv-card {
-    background: linear-gradient(160deg,#151530,#101022);
-    border: 1px solid #23233B; border-radius: 18px; padding: 18px 20px; margin-bottom: 14px;
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 16px;
+    padding: 18px 20px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(28,43,36,0.05);
 }
-.sv-card .sv-title { font-size: 1.02rem; font-weight: 800; color: #F1F3FC; }
-.sv-card .sv-sub { font-size: 0.75rem; color: #97A0C0; margin-top: 2px; margin-bottom: 10px; }
-.sv-chip { display:inline-block; font-size: 0.68rem; padding: 2px 9px; border-radius: 999px; margin-left: 6px; }
-.sv-chip.done { background: rgba(102,187,106,0.18); color: #81D186; border: 1px solid #3E7A44; }
-.sv-chip.live { background: rgba(124,140,255,0.18); color: #A9B4FF; border: 1px solid #4C5AFF; }
+.sv-card .sv-title { font-family: 'Noto Serif KR', serif; font-size: 1.02rem; font-weight: 800; color: var(--ink); }
+.sv-card .sv-sub { font-size: 0.75rem; color: var(--ink-soft); margin-top: 3px; margin-bottom: 10px; font-family:'IBM Plex Mono',monospace; }
+.sv-chip { display:inline-block; font-size: 0.68rem; padding: 2px 9px; border-radius: 999px; margin-left: 6px; font-family:'Noto Sans KR'; }
+.sv-chip.done { background: var(--brand-soft); color: var(--brand-deep); border: 1px solid var(--brand); }
+.sv-chip.live { background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold); }
 
-/* 쫓아가는 진행 바 */
+/* 쫓아가는 성장 진행 바 */
 .chase-wrap { margin: 10px 0 4px 0; }
-.chase-track { position: relative; height: 20px; background: #1A1A2C; border-radius: 999px;
-    border: 1px solid #2A2A44; overflow: visible; }
-.chase-fill { position: absolute; left:0; top:0; bottom:0; border-radius: 999px;
-    background-size: 200% 100%; animation: chase-shimmer 2.2s linear infinite; transition: width .7s ease; }
-@keyframes chase-shimmer { 0%{background-position:0% 0} 100%{background-position:200% 0} }
+.chase-track { position: relative; height: 18px; background: #EAF0E6; border-radius: 999px;
+    border: 1px solid var(--line); overflow: visible; }
+.chase-track.time { background-color: #EDF1F7;
+    background-image: repeating-linear-gradient(90deg, transparent 0 6px, rgba(47,63,92,0.14) 6px 9px); }
+.chase-fill { position: absolute; left:0; top:0; bottom:0; border-radius: 999px; transition: width .7s ease; }
 .chase-runner { position: absolute; top: 50%; transform: translateY(-50%); font-size: 1.05rem;
-    filter: drop-shadow(0 0 4px rgba(0,0,0,.7)); transition: left .7s ease; }
-.chase-labels { display:flex; justify-content: space-between; font-size: 0.7rem; color: #97A0C0; margin-top: 5px; }
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,.25)); transition: left .7s ease; }
+.chase-labels { display:flex; justify-content: space-between; font-size: 0.7rem; color: var(--ink-soft);
+    margin-top: 5px; font-family: 'IBM Plex Mono', monospace; }
 
-/* ── AI 코치 ── */
+/* ── AI 코치: 코치의 메모 카드 ── */
 .coach-card {
-    position: relative; border-radius: 20px; padding: 24px 26px; margin-top: 6px;
-    background: linear-gradient(160deg,#1A1338,#0E0E22);
-    border: 1px solid #4C3F9C;
-    box-shadow: 0 0 0 rgba(124,140,255,0.0);
-    animation: coach-glow 2.6s ease-in-out infinite;
+    position: relative; border-radius: 16px; padding: 28px 28px 24px 28px; margin-top: 10px;
+    background: var(--paper-2); border: 1px solid var(--line);
+    box-shadow: 0 12px 26px -16px rgba(28,43,36,0.3);
 }
-@keyframes coach-glow {
-    0%, 100% { box-shadow: 0 0 18px rgba(124,140,255,0.10); border-color: #4C3F9C; }
-    50% { box-shadow: 0 0 34px rgba(124,140,255,0.28); border-color: #7C8CFF; }
+.coach-card::before {
+    content: "코치의 메모"; position: absolute; top: -12px; left: 26px;
+    background: var(--gold-soft); color: var(--gold); border: 1px solid #D8C08A;
+    font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; letter-spacing: 1px;
+    padding: 3px 10px; border-radius: 999px; transform: rotate(-2deg);
 }
 .coach-hype {
-    font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 1.25rem;
-    background: linear-gradient(90deg,#7C8CFF,#FF8FA3,#7C8CFF);
-    background-size: 200% auto; -webkit-background-clip: text; background-clip: text; color: transparent;
-    animation: coach-shine 3s linear infinite; margin-bottom: 6px;
+    font-family: 'Noto Serif KR', serif; font-weight: 800; font-size: 1.3rem; color: var(--brand-deep);
+    display: inline-block; border-bottom: 2px dashed var(--gold-soft); padding-bottom: 8px; margin-bottom: 10px;
 }
-@keyframes coach-shine { to { background-position: 200% center; } }
-.coach-summary { font-size: 1.05rem; font-weight: 700; color: #F1F3FC; margin-bottom: 10px; }
+.coach-summary { font-size: 1.05rem; font-weight: 700; color: var(--ink); margin-bottom: 10px; }
 .risk-chip { display:inline-block; padding: 3px 12px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; }
-.risk-low { background: rgba(102,187,106,0.18); color:#81D186; border:1px solid #3E7A44; }
-.risk-mid { background: rgba(255,183,77,0.18); color:#FFC96B; border:1px solid #8A6A2E; }
-.risk-high{ background: rgba(255,92,110,0.18); color:#FF8FA3; border:1px solid #8A3040; }
+.risk-low { background: var(--brand-soft); color: var(--brand-deep); border: 1px solid var(--brand); }
+.risk-mid { background: var(--gold-soft); color: var(--gold); border: 1px solid #D8C08A; }
+.risk-high{ background: var(--coral-soft); color: var(--coral); border: 1px solid #D9A99C; }
 </style>
 """
 
@@ -223,8 +263,8 @@ def price_chart(asset_id, market):
     if len(hist) < 2:
         hist = hist * 2
     up = hist[-1] >= hist[0]
-    line_color = "#FF5C6E" if up else "#4C8DFF"
-    fill_color = "rgba(255,92,110,0.10)" if up else "rgba(76,141,255,0.10)"
+    line_color = UP_COLOR if up else DOWN_COLOR
+    fill_color = "rgba(184,68,47,0.08)" if up else "rgba(47,93,138,0.08)"
     fig = go.Figure(go.Scatter(
         x=list(range(len(hist))), y=hist, mode="lines",
         line=dict(color=line_color, width=2.2),
@@ -242,7 +282,7 @@ def net_worth_chart(user):
         return None
     vals = [h["value"] for h in hist]
     up = vals[-1] >= vals[0]
-    color = "#66BB6A" if up else "#FF5C6E"
+    color = GAIN_COLOR if up else LOSS_COLOR
     fig = go.Figure(go.Scatter(y=vals, mode="lines+markers", line=dict(color=color, width=2.5),
                                 marker=dict(size=4)))
     fig.update_layout(**PLOTLY_DARK, height=200, showlegend=False)
@@ -268,8 +308,8 @@ def portfolio_donut(user, market):
         return None
     fig = go.Figure(go.Pie(
         labels=labels, values=values, hole=0.62,
-        marker=dict(colors=["#5C6BC0", "#4C8DFF", "#FF5C6E", "#FFB74D", "#66BB6A", "#BA68C8", "#26C6DA", "#9AA5C0"]),
-        textinfo="label+percent", textfont=dict(size=11, color="#E7EAF6"),
+        marker=dict(colors=PIE_COLORS),
+        textinfo="label+percent", textfont=dict(size=11, color="#1C2B24"),
     ))
     fig.update_layout(**PLOTLY_DARK, height=280, showlegend=False)
     return fig
@@ -284,19 +324,40 @@ def render_news_ticker(market):
             f"<span class='ticker-item'>📰 <b>{ASSET_BY_ID.get(n['asset'],{}).get('name', n['asset'])}</b> · {n['text']}</span>"
             for n in items[:8]
         )
-    st.markdown(f"<div class='ticker-wrap'><div class='ticker-inner'>{html}{html}</div></div>", unsafe_allow_html=True)
+    st.markdown(f"""<div class="ticker-wrap">
+        <div class="ticker-tag">NEWS</div>
+        <div class="ticker-scroll"><div class="ticker-inner">{html}{html}</div></div>
+        </div>""", unsafe_allow_html=True)
 
 
-def chase_bar(pct, left_label, right_label, color_from="#7C8CFF", color_to="#FF8FA3", runner="🐇"):
+def chase_bar(pct, left_label, right_label, theme="growth"):
+    """theme='growth': 저축/목표 금액 진행률 (새싹 → 나무로 자라남) / theme='time': 기간 진행률 (걸어서 만기까지)"""
     pct = max(0.0, min(1.0, pct))
-    left_pos = f"calc({pct*100:.1f}% - 12px)"
+    left_pos = f"calc({pct*100:.1f}% - 11px)"
     if pct <= 0.02:
         left_pos = "2px"
     if pct >= 0.98:
-        left_pos = "calc(100% - 22px)"
+        left_pos = "calc(100% - 20px)"
+
+    if theme == "time":
+        color_from, color_to = "#4C6690", "#2F3F5C"
+        runner = "🏁" if pct >= 1.0 else "🚶"
+        track_cls = "chase-track time"
+    else:
+        color_from, color_to = "#3FA179", "#0A5A40"
+        if pct >= 1.0:
+            runner = "🌳"
+        elif pct >= 0.6:
+            runner = "🌿"
+        elif pct >= 0.25:
+            runner = "🌱"
+        else:
+            runner = "🌰"
+        track_cls = "chase-track"
+
     st.markdown(f"""
         <div class="chase-wrap">
-            <div class="chase-track">
+            <div class="{track_cls}">
                 <div class="chase-fill" style="width:{pct*100:.1f}%; background:linear-gradient(90deg,{color_from},{color_to});"></div>
                 <div class="chase-runner" style="left:{left_pos};">{runner}</div>
             </div>
@@ -594,7 +655,7 @@ def render_goals(user):
             <div class="g-sub">{format_korean_money(g['current'])} / {format_korean_money(g['target'])}</div>
             </div>""", unsafe_allow_html=True)
         chase_bar(g["pct"], f"{g['pct']*100:.1f}% 달성", format_korean_money(g["target"] - g["current"]) + " 남음"
-                  if g["pct"] < 1 else "목표 달성! 🎉", runner="🐢" if g["pct"] < 1 else "🏆")
+                  if g["pct"] < 1 else "목표 달성! 🎉", theme="growth")
         if g["pct"] >= 1.0:
             if award_badge(user, "goal_reached"):
                 st.balloons()
@@ -679,13 +740,12 @@ def render_savings(user):
 
             if prog["time_pct"] is not None:
                 d_label = f"D-{prog['days_left']}" if prog["days_left"] and prog["days_left"] > 0 else "만기 도달"
-                chase_bar(prog["time_pct"], f"기간 진행 {prog['time_pct']*100:.0f}%", d_label,
-                          color_from="#4C8DFF", color_to="#7EE7FF", runner="🚗")
+                chase_bar(prog["time_pct"], f"기간 진행 {prog['time_pct']*100:.0f}%", d_label, theme="time")
             if prog["amount_pct"] is not None:
                 remain = max(0, s["target_amount"] - s["amount"])
                 chase_bar(prog["amount_pct"], f"{format_korean_money(s['amount'])} 납입",
                           f"목표까지 {format_korean_money(remain)}" if remain > 0 else "목표 금액 달성! 🎉",
-                          color_from="#7C8CFF", color_to="#FF8FA3", runner="🐇")
+                          theme="growth")
 
             dc1, dc2, dc3 = st.columns([2, 1, 1])
             with dc1:
@@ -719,15 +779,19 @@ def render_badges(user):
     st.caption(f"확률형 아이템이 아닌, 조건을 채우면 100% 지급되는 성취 배지입니다. ({len(user['badges'])} / {len(BADGES)} 개 획득)")
 
     cols = st.columns(6)
+    ROTATIONS = [-5, 3, -3, 6, -6, 2]
     for i, b in enumerate(BADGES):
         earned = b["id"] in user["badges"]
         with cols[i % 6]:
             cls = "earned" if earned else "locked"
-            st.markdown(f"""<div class="badge-card {cls}">
-                <div class="b-icon">{b['icon'] if earned else '🔒'}</div>
-                <div class="b-name">{b['name']}</div>
-                <div class="b-desc">{b['desc']}</div>
-                <div class="b-xp">+{b['xp']} XP</div>
+            rot = ROTATIONS[i % len(ROTATIONS)]
+            st.markdown(f"""<div class="stamp-cell">
+                <div class="stamp-circle {cls}" style="transform: rotate({rot}deg);">
+                    <span class="stamp-icon">{b['icon'] if earned else '🔒'}</span>
+                </div>
+                <div class="stamp-name">{b['name']}</div>
+                <div class="stamp-desc">{b['desc']}</div>
+                <div class="stamp-xp">+{b['xp']} XP</div>
                 </div>""", unsafe_allow_html=True)
 
 
@@ -841,6 +905,7 @@ def _make_uid(name: str, birth_year: int) -> str:
 
 def render_signup_gate():
     st.markdown("""<div class="ml-hero">
+        <div class="eyebrow">MONEY PASSBOOK · Lv.1 부터 시작</div>
         <h1>💡 머니레벨업</h1>
         <p>사회초년생을 위한 AI 소비·투자 코칭 모의 서비스</p>
         </div>""", unsafe_allow_html=True)
@@ -904,6 +969,7 @@ def main():
         st.caption("실제 금전 거래가 없는 교육용 시뮬레이션입니다.")
 
     st.markdown(f"""<div class="ml-hero">
+        <div class="eyebrow">MONEY PASSBOOK · Lv.{get_level(user['xp'])}</div>
         <h1>💡 머니레벨업</h1>
         <p>{profile['name']}님, 오늘도 한 걸음 레벨업 해봐요</p>
         </div>""", unsafe_allow_html=True)
