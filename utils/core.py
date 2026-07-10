@@ -33,9 +33,12 @@ def format_korean_money(num):
 
 
 # ── 유저 (이름+출생연도 키, DB 연결 시 지속됨 / 미연결 시 세션에만 유지) ─────────
-def default_user():
-    return {
-        "real_cash": STARTING_REAL_CASH,   # 실제 자금 (가계부/예적금 전용)
+def default_user(initial_real_cash: int = None, initial_savings: int = 0):
+    """initial_real_cash: 온보딩(시작하기)에서 사용자가 직접 입력한 '현재 이미 가진 돈'.
+    None이면 기존 기본값(STARTING_REAL_CASH)을 사용한다."""
+    real_cash = STARTING_REAL_CASH if initial_real_cash is None else int(initial_real_cash)
+    user = {
+        "real_cash": real_cash,            # 실제 자금 (가계부/예적금 전용)
         "mock_cash": STARTING_MOCK_CASH,   # 모의투자 전용 가상 시드머니
         "portfolio": {},        # {asset_id: {"qty": int, "avg_price": float}}  ※ 모의투자 전용
         "savings": [],          # [{id,name,icon,start,end,months,target_amount,rate,amount,created}, ...]  ※ 실제 자금
@@ -47,13 +50,24 @@ def default_user():
         "risk_profile": None,   # AI 온보딩 진단 결과
         "ai_coach_count": 0,
         "nw_history": [],       # [{"ts":..., "value":...}] 순자산 추이 (실제+모의 합산, 게임 지표용)
+        "chat_history": [],     # [{"role": "user"|"coach", "text": ...}, ...]  ※ AI 상담 챗봇 전용
     }
+    if initial_real_cash:
+        log_tx(user, {"kind": "income", "category": "etc_in", "amount": int(initial_real_cash),
+                       "memo": "초기 보유 자금 설정", "is_setup": True})
+    if initial_savings:
+        s = create_saving("초기 보유 저축", date.today().isoformat(), 0, 0, 0.0, initial_savings, icon="💼")
+        user["savings"].append(s)
+        log_tx(user, {"kind": "savings_open", "name": s["name"], "amount": initial_savings,
+                       "memo": "초기 보유 저축/예적금 설정"})
+    return user
 
 
-def get_user(uid: str):
+def get_user(uid: str, initial_real_cash: int = None, initial_savings: int = 0):
     if "user" not in st.session_state:
         loaded = load_doc("users", uid, None)
-        user = loaded if loaded else default_user()
+        is_new = loaded is None
+        user = loaded if loaded else default_user(initial_real_cash, initial_savings)
         # ── 이전 버전 데이터 마이그레이션 ──
         # 구버전은 "cash" 하나로 실제자금/모의투자를 같이 썼음. 있으면 1회 분리한다.
         if "cash" in user:
@@ -64,7 +78,20 @@ def get_user(uid: str):
         for k, v in default_user().items():
             user.setdefault(k, v)
         st.session_state.user = user
+        st.session_state["_is_new_user"] = is_new
     return st.session_state.user
+
+
+def adjust_balance(user: dict, new_amount: int, memo: str = "잔액 직접 수정"):
+    """지갑 잔액을 사용자가 원하는 값으로 직접 맞춘다 (차액만큼 조정 내역을 기록)."""
+    diff = int(new_amount) - user.get("real_cash", 0)
+    if diff == 0:
+        return 0
+    user["real_cash"] = int(new_amount)
+    log_tx(user, {"kind": "income" if diff > 0 else "expense",
+                   "category": "etc_in" if diff > 0 else "etc",
+                   "amount": abs(diff), "memo": memo, "is_adjustment": True})
+    return diff
 
 
 def save_user(uid: str, user: dict) -> bool:
@@ -374,3 +401,131 @@ def record_net_worth_point(user, market):
     hist.append({"ts": now, "value": get_net_worth(user, market),
                  "real": real_net_worth(user), "mock": mock_total_value(user, market)})
     user["nw_history"] = hist[-200:]
+
+
+# ── 재무 건강 점수 (규칙 기반 · 설명 가능한 100점 만점 점수) ──────────────────
+# 판정 근거를 그대로 노출하는 투명한 알고리즘으로, AI 코치의 정성적 진단을 정량 지표로 보완한다.
+def financial_health_score(user, market):
+    tx = user.get("tx_log", [])
+    now = time.time()
+    month_ago = now - 30 * 24 * 3600
+    three_months_ago = now - 90 * 24 * 3600
+
+    income_recent = sum(t["amount"] for t in tx if t.get("kind") == "income" and t.get("ts", 0) >= three_months_ago
+                         and not t.get("is_setup") and not t.get("is_adjustment"))
+    expense_recent = sum(t["amount"] for t in tx if t.get("kind") == "expense" and t.get("ts", 0) >= three_months_ago)
+    month_expense = sum(t["amount"] for t in tx if t.get("kind") == "expense" and t.get("ts", 0) >= month_ago)
+
+    savings_total = total_saving_amount(user)
+    real_cash = user.get("real_cash", 0)
+    breakdown = []
+
+    # 1) 저축률 (최근 3개월 수입 대비 저축 비중, 최대 30점)
+    if income_recent > 0:
+        save_rate = min(1.5, savings_total / income_recent)
+        pts = round(min(30, save_rate / 0.3 * 30))
+    else:
+        pts = 10 if savings_total > 0 else 0
+    breakdown.append({"key": "저축 습관", "points": pts, "max": 30,
+                       "detail": f"최근 3개월 수입 대비 저축 비중 기준 (누적 저축 {format_korean_money(savings_total)})"})
+
+    # 2) 비상금 커버리지 (월 지출 대비 실제 현금 보유, 최대 25점)
+    if month_expense > 0:
+        months_covered = real_cash / month_expense
+        pts = round(min(25, months_covered / 3 * 25))
+    else:
+        pts = 15 if real_cash > 0 else 5
+    breakdown.append({"key": "비상금 여력", "points": pts, "max": 25,
+                       "detail": "생활비 3개월치 이상의 현금 보유를 만점 기준으로 계산"})
+
+    # 3) 투자 분산도 (보유 자산군 종류 수, 최대 20점)
+    assets_by_id = ASSET_BY_ID_CACHE()
+    held_ids = [aid for aid, pos in user.get("portfolio", {}).items() if pos.get("qty", 0) > 0]
+    types_held = {assets_by_id[aid]["type"] for aid in held_ids if aid in assets_by_id}
+    pts = round(min(20, len(types_held) / 4 * 20))
+    breakdown.append({"key": "분산 투자", "points": pts, "max": 20,
+                       "detail": f"서로 다른 자산군 {len(types_held)}개 보유 (4개 이상이면 만점)"})
+
+    # 4) 소비 통제력 (최근 3개월 지출이 수입을 넘지 않았는지, 최대 15점)
+    if income_recent > 0:
+        ratio = expense_recent / income_recent
+        pts = 15 if ratio <= 0.7 else round(max(0, 15 * (1.3 - ratio) / 0.6))
+    else:
+        pts = 8
+    breakdown.append({"key": "소비 통제", "points": pts, "max": 15,
+                       "detail": "최근 3개월 지출/수입 비율 기준"})
+
+    # 5) 목표 설정 및 진행 (최대 10점)
+    g = goal_progress(user)
+    if g:
+        pts = round(5 + 5 * g["pct"])
+    else:
+        pts = 0
+    breakdown.append({"key": "목표 관리", "points": pts, "max": 10,
+                       "detail": "목표저축 설정 여부와 달성률 기준"})
+
+    score = sum(b["points"] for b in breakdown)
+    if score >= 85:
+        grade, comment = "S", "탄탄한 재무 체력을 갖추고 있어요."
+    elif score >= 70:
+        grade, comment = "A", "좋은 습관이 자리 잡고 있어요."
+    elif score >= 50:
+        grade, comment = "B", "기본기는 있지만 보완할 부분이 있어요."
+    elif score >= 30:
+        grade, comment = "C", "몇 가지 습관만 바꾸면 크게 좋아질 수 있어요."
+    else:
+        grade, comment = "D", "지금부터 하나씩 만들어가면 돼요."
+
+    return {"score": score, "grade": grade, "comment": comment, "breakdown": breakdown}
+
+
+# ── 다음 달 지출 예측 (최근 3개월 가계부 기록 기반 추세 예측, 회귀 없이도 안정적으로 동작) ──
+def predict_next_month_expense(user):
+    tx = [t for t in user.get("tx_log", []) if t.get("kind") == "expense"]
+    if not tx:
+        return None
+
+    now = time.localtime()
+    monthly = {}
+    for t in tx:
+        lt = time.localtime(t.get("ts", time.time()))
+        key = (lt.tm_year, lt.tm_mon)
+        monthly[key] = monthly.get(key, 0) + t["amount"]
+
+    ordered_keys = sorted(monthly.keys())
+    recent_keys = ordered_keys[-3:]
+    recent_vals = [monthly[k] for k in recent_keys]
+    if not recent_vals:
+        return None
+
+    if len(recent_vals) == 1:
+        forecast = recent_vals[0]
+        trend = 0.0
+    else:
+        # 최근 값에 가중치를 더 주는 단순 가중이동평균 + 최근 추세 반영
+        weights = list(range(1, len(recent_vals) + 1))
+        weighted_avg = sum(v * w for v, w in zip(recent_vals, weights)) / sum(weights)
+        trend = (recent_vals[-1] - recent_vals[0]) / max(1, len(recent_vals) - 1)
+        forecast = max(0, weighted_avg + trend * 0.5)
+
+    # 카테고리별 최근 1개월 비중을 그대로 다음 달 예측에 적용
+    month_ago = time.time() - 30 * 24 * 3600
+    by_cat = {}
+    for t in tx:
+        if t.get("ts", 0) >= month_ago:
+            by_cat[t["category"]] = by_cat.get(t["category"], 0) + t["amount"]
+    cat_total = sum(by_cat.values()) or 1
+    forecast_by_cat = {cat: forecast * (amt / cat_total) for cat, amt in by_cat.items()}
+
+    is_anomaly_month = False
+    if len(recent_vals) >= 2:
+        avg_prev = sum(recent_vals[:-1]) / len(recent_vals[:-1])
+        is_anomaly_month = avg_prev > 0 and recent_vals[-1] >= avg_prev * 1.3
+
+    return {
+        "forecast": round(forecast),
+        "trend": trend,
+        "history": list(zip([f"{y}-{m:02d}" for y, m in recent_keys], recent_vals)),
+        "forecast_by_category": forecast_by_cat,
+        "anomaly": is_anomaly_month,
+    }

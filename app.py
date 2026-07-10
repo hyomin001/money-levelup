@@ -13,14 +13,15 @@ from utils.config import (
     ONBOARDING_QUESTIONS, BADGES, BENCHMARK_SPENDING_RATIO,
 )
 from utils.core import (
-    get_user, save_user, default_user, log_tx, delete_tx, add_income,
+    get_user, save_user, default_user, log_tx, delete_tx, add_income, adjust_balance,
     get_net_worth, real_net_worth, mock_portfolio_value, mock_total_value,
     get_market, tick_market, format_korean_money,
     get_level, xp_progress, check_habit_badges, award_badge, BADGE_BY_ID,
     set_goal, goal_progress, record_net_worth_point,
     create_saving, saving_progress, total_saving_amount,
+    financial_health_score, predict_next_month_expense,
 )
-from utils.ai_coach import get_financial_diagnosis, get_risk_profile
+from utils.ai_coach import get_financial_diagnosis, get_risk_profile, get_full_report, chat_with_coach
 from utils.database import db_available
 
 st.set_page_config(page_title="머니레벨업 | AI 금융 코치", page_icon="💡", layout="wide")
@@ -457,6 +458,33 @@ def render_dashboard(user, market):
     c6.metric("획득 뱃지", f"{n_badges} / {len(BADGES)}")
     c7.metric("보유 종목 수", f"{n_held}개")
     c8.metric("목표 달성률", f"{g['pct']*100:.0f}%" if g else "목표 없음")
+
+    st.write("")
+    fh = financial_health_score(user, market)
+    forecast = predict_next_month_expense(user)
+    hcol, fcol = st.columns([1, 1])
+    with hcol:
+        with st.container(border=True):
+            st.markdown(f"#### 🩺 재무 건강 점수 · {fh['score']}점 ({fh['grade']}등급)")
+            st.progress(min(1.0, fh["score"] / 100))
+            st.caption(fh["comment"])
+            with st.expander("점수 구성 자세히 보기"):
+                for b in fh["breakdown"]:
+                    st.write(f"**{b['key']}** — {b['points']}/{b['max']}점")
+                    st.caption(b["detail"])
+    with fcol:
+        with st.container(border=True):
+            st.markdown("#### 🔮 다음 달 예상 지출")
+            if forecast:
+                st.metric("예상 지출액", format_korean_money(forecast["forecast"]))
+                if forecast["anomaly"]:
+                    st.warning("⚠️ 최근 지출 흐름이 평소보다 크게 늘었어요. 가계부에서 원인을 점검해보세요.")
+                if forecast["history"]:
+                    hist_df = pd.DataFrame(forecast["history"], columns=["월", "지출액"])
+                    st.caption("최근 월별 지출 추이 (가중평균 + 추세로 예측)")
+                    st.dataframe(hist_df, use_container_width=True, hide_index=True)
+            else:
+                st.caption("가계부 기록이 쌓이면 다음 달 지출을 예측해드려요.")
 
     nw_fig = net_worth_chart(user)
     if nw_fig:
@@ -991,6 +1019,95 @@ def render_ai_coach(user, market):
             for item in result["action_items"]:
                 st.write(f"- {item}")
 
+    st.divider()
+    st.markdown("### 📄 종합 재무 리포트 (다운로드용)")
+    st.caption("재무 건강 점수, 지출 예측, 투자·저축 현황을 하나로 묶은 상세 리포트를 생성해요. 인쇄하거나 저장해서 보관할 수 있어요.")
+    if st.button("📄 종합 리포트 생성하기", use_container_width=True):
+        spending = {}
+        for t in user["tx_log"]:
+            if t.get("kind") == "expense":
+                name = CAT_BY_ID[t["category"]]["name"]
+                spending[name] = spending.get(name, 0) + t["amount"]
+        portfolio_summary = []
+        for aid, pos in user.get("portfolio", {}).items():
+            a = ASSET_BY_ID[aid]
+            val = pos["qty"] * market["prices"].get(aid, 0)
+            portfolio_summary.append({"name": a["name"], "type": a["type"], "value": val})
+
+        report_data = {
+            "financial_health": financial_health_score(user, market),
+            "forecast": predict_next_month_expense(user),
+            "spending_by_category": spending,
+            "portfolio": portfolio_summary,
+            "savings_total": total_saving_amount(user),
+            "real_cash": user.get("real_cash", 0),
+            "goal": goal_progress(user),
+        }
+        with st.spinner("리포트를 작성하는 중..."):
+            report_md = get_full_report(report_data)
+        st.session_state["ai_report_md"] = report_md
+
+    report_md = st.session_state.get("ai_report_md")
+    if report_md:
+        with st.container(border=True):
+            st.markdown(report_md)
+        st.download_button("⬇️ 리포트 다운로드 (.md)", data=report_md,
+                            file_name=f"머니레벨업_재무리포트_{date.today().isoformat()}.md",
+                            mime="text/markdown", use_container_width=True)
+
+
+# ── AI 상담 (멀티턴 챗봇) ───────────────────────────────────────────────────
+def render_ai_chat(user, market):
+    st.markdown("## 💬 AI 상담 챗봇")
+    st.caption("자유롭게 질문해보세요. 코치가 당신의 최신 가계부·투자·저축 데이터를 참고해 답해드려요.")
+
+    for msg in user.get("chat_history", []):
+        with st.chat_message("user" if msg["role"] == "user" else "assistant"):
+            st.write(msg["text"])
+
+    question = st.chat_input("예: 이번 달 소비 어때? / 지금 포트폴리오 괜찮아?")
+    if question:
+        user.setdefault("chat_history", []).append({"role": "user", "text": question})
+        with st.chat_message("user"):
+            st.write(question)
+
+        spending = {}
+        for t in user["tx_log"]:
+            if t.get("kind") == "expense":
+                name = CAT_BY_ID[t["category"]]["name"]
+                spending[name] = spending.get(name, 0) + t["amount"]
+        portfolio_summary = []
+        for aid, pos in user.get("portfolio", {}).items():
+            a = ASSET_BY_ID[aid]
+            val = pos["qty"] * market["prices"].get(aid, 0)
+            portfolio_summary.append({"name": a["name"], "type": a["type"], "value": val})
+        context = {
+            "real_cash": user.get("real_cash", 0),
+            "savings_total": total_saving_amount(user),
+            "spending_by_category": spending,
+            "portfolio": portfolio_summary,
+            "financial_health_score": financial_health_score(user, market)["score"],
+            "risk_profile": (user.get("risk_profile") or {}).get("profile_name"),
+        }
+        history_payload = [{"role": ("user" if m["role"] == "user" else "model"), "text": m["text"]}
+                            for m in user["chat_history"][-10:]]
+
+        with st.chat_message("assistant"):
+            with st.spinner("생각하는 중..."):
+                answer = chat_with_coach(history_payload, context)
+            st.write(answer)
+        user["chat_history"].append({"role": "coach", "text": answer})
+        user["chat_history"] = user["chat_history"][-40:]
+        user["ai_coach_count"] = user.get("ai_coach_count", 0) + 1
+        if award_badge(user, "ai_first"):
+            st.toast("🏅 뱃지 획득: AI와 첫 상담", icon="🎉")
+        _persist(user)
+
+    if user.get("chat_history") and st.button("🧹 대화 초기화"):
+        user["chat_history"] = []
+        _persist(user)
+        st.rerun()
+
 
 def _make_uid(name: str, birth_year: int) -> str:
     slug = "".join(ch for ch in name.strip().lower() if ch.isalnum())
@@ -1012,6 +1129,15 @@ def render_signup_gate():
         with st.form("signup_form"):
             name = st.text_input("이름 (또는 닉네임)", placeholder="예: 김효민")
             birth_year = st.number_input("출생연도", min_value=1950, max_value=2015, value=2000, step=1)
+            st.markdown("**💰 이미 갖고 있는 돈이 있나요?** (처음 한 번만 입력하면 돼요, 나중에 사이드바에서 수정 가능)")
+            ic1, ic2 = st.columns(2)
+            with ic1:
+                initial_cash = st.number_input("현재 통장/지갑 잔액 (원)", min_value=0, value=0, step=10_000,
+                                                 help="이미 갖고 있는 현금·예금 등 바로 쓸 수 있는 돈")
+            with ic2:
+                initial_savings = st.number_input("이미 들고 있는 예/적금 총액 (원)", min_value=0, value=0, step=10_000,
+                                                    help="가입해둔 적금·예금이 있다면 그 합계를 입력하세요")
+            st.caption("둘 다 0으로 두면 기존처럼 0원부터 시작해요. 모의투자 시드머니는 이 설정과 무관하게 별도로 지급됩니다.")
             submitted = st.form_submit_button("시작하기", type="primary", use_container_width=True)
             if submitted:
                 if not name.strip():
@@ -1019,6 +1145,8 @@ def render_signup_gate():
                 else:
                     uid = _make_uid(name, int(birth_year))
                     st.session_state.profile = {"name": name.strip(), "birth_year": int(birth_year), "uid": uid}
+                    st.session_state["_pending_initial_cash"] = int(initial_cash)
+                    st.session_state["_pending_initial_savings"] = int(initial_savings)
                     st.rerun()
 
 
@@ -1034,7 +1162,9 @@ def main():
 
     profile = st.session_state.profile
     uid = profile["uid"]
-    user = get_user(uid)
+    user = get_user(uid,
+                     initial_real_cash=st.session_state.pop("_pending_initial_cash", None),
+                     initial_savings=st.session_state.pop("_pending_initial_savings", 0))
     market = tick_market()
     record_net_worth_point(user, market)
     newly = check_habit_badges(user, market)
@@ -1066,8 +1196,23 @@ def main():
             for k in ("user", "market", "ai_result", "profile", "_last_save_ok", "_last_save_ts"):
                 st.session_state.pop(k, None)
             st.rerun()
+
+        with st.expander("🔧 지갑 잔액 직접 수정"):
+            st.caption("깜빡하고 초기 자금을 잘못 넣었거나, 실제 통장 잔액에 맞춰 보정하고 싶을 때 사용하세요.")
+            new_balance = st.number_input("현재 지갑 잔액을 이 값으로 맞추기 (원)",
+                                           min_value=0, value=int(user.get("real_cash", 0)), step=10_000,
+                                           key="_balance_fix_input")
+            if st.button("잔액 반영", use_container_width=True):
+                diff = adjust_balance(user, new_balance)
+                _persist(user)
+                if diff == 0:
+                    st.toast("변동 없음")
+                else:
+                    st.toast(f"잔액을 {format_korean_money(new_balance)}로 맞췄어요 ({'+' if diff > 0 else ''}{format_korean_money(diff)})")
+                st.rerun()
+
         st.divider()
-        st.caption(f"실제 자금은 0원부터, 모의투자는 {format_korean_money(STARTING_MOCK_CASH)}부터 시작해요.")
+        st.caption(f"실제 자금은 시작 시 설정한 금액부터, 모의투자는 {format_korean_money(STARTING_MOCK_CASH)}부터 시작해요.")
         st.caption("모의투자는 실제 금전 거래가 없는 연습용 시뮬레이션입니다.")
 
     st.markdown(f"""<div class="ml-hero">
@@ -1079,7 +1224,7 @@ def main():
     render_news_ticker(market)
 
     tabs = st.tabs(["📊 대시보드", "🧭 투자성향", "📈 모의투자", "🧾 가계부",
-                    "🎯 목표저축", "🏦 예/적금", "🤖 AI 코치", "🏅 뱃지"])
+                    "🎯 목표저축", "🏦 예/적금", "🤖 AI 코치", "💬 AI 상담", "🏅 뱃지"])
     with tabs[0]:
         render_dashboard(user, market)
     with tabs[1]:
@@ -1095,6 +1240,8 @@ def main():
     with tabs[6]:
         render_ai_coach(user, market)
     with tabs[7]:
+        render_ai_chat(user, market)
+    with tabs[8]:
         render_badges(user)
 
     _persist(user)  # 뱃지/XP/순자산 추이 등 명시적 rerun 없이 바뀐 값도 매 실행마다 저장

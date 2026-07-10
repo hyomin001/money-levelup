@@ -99,6 +99,100 @@ def get_risk_profile(answers: list):
         }
 
 
+REPORT_PROMPT = """\
+당신은 "레벨업 코치"입니다. 사용자의 재무 데이터(가계부, 모의투자, 저축, 재무 건강 점수, 다음 달 지출 예측이 담긴 JSON)를
+바탕으로, 인쇄해서 보관할 수 있는 개인 맞춤 재무 리포트를 마크다운으로 작성하세요.
+
+반드시 아래 섹션 구조를 지키고, 각 섹션에 숫자 근거를 인용하며 실행 가능한 조언을 담으세요. 과장된 확신이나 근거 없는
+수익 약속은 하지 않습니다. 마크다운 헤더(#, ##)를 사용하고, 표가 유용하면 마크다운 표를 사용해도 됩니다.
+
+# 📑 이번 달 재무 리포트
+## 1. 총평
+## 2. 재무 건강 점수 해설 (점수 구성 항목별로 왜 그 점수인지 설명)
+## 3. 소비 패턴 분석 (카테고리별 비중, 다음 달 지출 예측과 이상 여부 포함)
+## 4. 투자 포트폴리오 분석 (분산 정도, 위험도)
+## 5. 저축·목표 진행 상황
+## 6. 다음 30일 실행 플랜 (체크리스트 형태로 3~5개)
+
+응답은 마크다운 텍스트만 반환하고, JSON이나 코드블록 표시(```) 없이 바로 본문으로 시작하세요.
+"""
+
+
+def _fallback_report(data: dict) -> str:
+    """API 키가 없을 때도 항상 동작하는 규칙 기반 리포트 (형식은 AI 버전과 동일하게 유지)."""
+    fh = data.get("financial_health", {})
+    forecast = data.get("forecast", {})
+    lines = [
+        "# 📑 이번 달 재무 리포트 (오프라인 요약본)",
+        "",
+        "> ⚠️ GEMINI_API_KEY가 설정되지 않아 AI 서술형 리포트 대신 규칙 기반 요약을 보여드려요.",
+        "",
+        "## 1. 총평",
+        f"- 재무 건강 점수: **{fh.get('score', '-')}점 ({fh.get('grade', '-')}등급)** — {fh.get('comment', '')}",
+        "",
+        "## 2. 재무 건강 점수 구성",
+    ]
+    for b in fh.get("breakdown", []):
+        lines.append(f"- {b['key']}: {b['points']}/{b['max']}점 — {b['detail']}")
+    lines += ["", "## 3. 다음 달 지출 예측"]
+    if forecast:
+        lines.append(f"- 예상 지출액: 약 {forecast.get('forecast', 0):,}원"
+                      + (" (⚠️ 최근 지출이 평소보다 크게 늘었어요)" if forecast.get("anomaly") else ""))
+    else:
+        lines.append("- 아직 예측할 만큼의 가계부 기록이 없어요.")
+    lines += ["", "## 4. 실행 플랜", "- [ ] 이번 달 지출을 카테고리별로 다시 점검하기",
+              "- [ ] 비상금 3개월치 목표를 세우기", "- [ ] 포트폴리오 분산 상태 점검하기"]
+    return "\n".join(lines)
+
+
+def get_full_report(data: dict) -> str:
+    """data: {financial_health, forecast, spending_by_category, portfolio, savings_total, real_cash} 등을 담은 dict"""
+    client = _client()
+    if client is None:
+        return _fallback_report(data)
+    try:
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=json.dumps(data, ensure_ascii=False),
+            config=types.GenerateContentConfig(system_instruction=REPORT_PROMPT),
+        )
+        text = resp.text.strip()
+        return text if text else _fallback_report(data)
+    except Exception as e:
+        return _fallback_report(data) + f"\n\n> (AI 리포트 생성 중 오류가 발생해 요약본으로 대체했어요: {e})"
+
+
+CHAT_SYSTEM_PROMPT = """\
+당신은 "레벨업 코치"입니다. 사용자의 실제 재무 데이터(JSON, 매 턴 제공됨)를 참고 자료로 삼아, 자유로운 질문에
+대화형으로 답합니다. 숫자 근거를 들어 구체적으로 답하고, 실행 가능한 제안을 하되 과장된 확신이나 근거 없는 수익
+약속은 하지 않습니다. 답변은 3~6문장 내외로 간결하게, 한국어로, 트레이너 콘셉트의 힘 있는 말투를 유지합니다.
+사용자의 재무 상황과 무관한 일반 상식 질문에는 짧게만 답하고 다시 재무 주제로 자연스럽게 돌아오세요.
+"""
+
+
+def chat_with_coach(history: list, user_context: dict) -> str:
+    """history: [{"role": "user"|"model", "text": ...}, ...] (마지막 항목이 이번 사용자 질문)
+    user_context: 가계부/투자/저축 요약 dict — 매 턴 최신 데이터를 함께 전달해 근거 있는 답변을 만든다."""
+    client = _client()
+    if client is None:
+        return "AI 코치를 사용하려면 secrets.toml에 GEMINI_API_KEY를 설정해주세요."
+    try:
+        contents = [types.Content(role=("user" if h["role"] == "user" else "model"),
+                                    parts=[types.Part(text=h["text"])]) for h in history[:-1]]
+        last_q = history[-1]["text"]
+        contents.append(types.Content(role="user", parts=[types.Part(
+            text=f"[참고용 재무 데이터]\n{json.dumps(user_context, ensure_ascii=False)}\n\n[질문]\n{last_q}"
+        )]))
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=contents,
+            config=types.GenerateContentConfig(system_instruction=CHAT_SYSTEM_PROMPT),
+        )
+        return resp.text.strip()
+    except Exception as e:
+        return f"답변 생성 중 오류가 발생했어요: {e}"
+
+
 def get_financial_diagnosis(spending_by_category: dict, portfolio_summary: list, savings_total: int, real_cash: int):
     """
     spending_by_category: {"식비": 320000, "카페/간식": 150000, ...}
