@@ -1,121 +1,37 @@
-# utils/ai_coach.py
-# 지원서 "AI 활용 방법" 항목의 핵심 기능.
-# 사용자의 소비/투자/저축 데이터를 Gemini에게 넘겨 개인화된 금융 코칭을 생성한다.
-import json
-import streamlit as st
-from google import genai
-from google.genai import types
+# 💡 머니레벨업 (Money Level-Up)
 
-SYSTEM_PROMPT = """\
-당신은 20~30대 사회초년생을 위한 다정하지만 냉정한 금융 코치입니다.
-사용자의 최근 소비 내역, 모의투자 포트폴리오, 저축 현황(JSON)을 보고 아래 형식으로 한국어 진단을 작성하세요.
+사회초년생을 위한 **AI 소비·투자 코칭 모의 서비스**입니다. 실제 돈이 오가지 않는 교육용 시뮬레이션이며,
+가계부 · 모의투자 · 예/적금 · 목표저축을 게임처럼 기록하면서 레벨/뱃지 시스템으로 재미를 더했습니다.
 
-규칙:
-- 숫자를 근거로 구체적으로 말할 것 (예: "카페 지출이 전체 소비의 22%")
-- 비난하지 말고, 실행 가능한 다음 행동 1~3개를 제안할 것
-- 투자 포트폴리오가 특정 자산군에 쏠려 있으면 분산 관점에서 짚어줄 것
-- 저축이 전혀 없으면 비상금(생활비 3~6개월치)의 필요성을 언급할 것
-- 반드시 아래 JSON 형식으로만 응답:
+## 주요 기능
+- **투자성향 진단**: 10개 문항(투자기간·손실반응·목표·경험·소득·비상금·저축률·부채·목적·금융지식)을 바탕으로
+  Gemini가 투자성향과 추천 자산배분을 진단합니다.
+- **대시보드**: 순자산 추이, 자산 배분, 포트폴리오, 이번 달 지출, 뱃지 현황을 한눈에 봅니다.
+- **모의투자**: 14개 가상 자산의 랜덤워크+뉴스 이벤트 시세, 종목별 뉴스, 실시간으로 갱신되는 모의 호가창(매수/매도 5호가)을 제공합니다.
+- **가계부**: 카테고리를 골라 지출을 기록하고, 또래 평균 소비 비중과 비교합니다.
+- **목표저축 / 예·적금**: 이름·시작일·기간·목표금액을 자유롭게 입력해 나만의 예/적금을 만들고,
+  기간/금액 진행률을 "쫓아가는" 스타일의 진행 바로 확인합니다.
+- **AI 코치**: 소비·투자·저축 데이터를 종합해 Gemini가 개인화된 진단과 실행 항목을 제시합니다.
+- **레벨/뱃지 시스템**: 26종의 확정 지급형(확률 없음) 성취 뱃지로 좋은 습관을 게임처럼 쌓아갑니다.
 
-{
-  "summary": "한 줄 총평",
-  "spending_insight": "소비 패턴 분석 2~3문장",
-  "investing_insight": "투자 포트폴리오 분석 2~3문장",
-  "action_items": ["실행 항목1", "실행 항목2", "실행 항목3"],
-  "risk_level": "낮음|보통|높음"
-}
-"""
+## 실행 방법
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
 
+## 필요한 Secrets (선택)
+`.streamlit/secrets.toml.example`을 참고해 `.streamlit/secrets.toml`을 만드세요.
+- `GEMINI_API_KEY`: AI 코치 / 투자성향 진단 기능에 필요 (없으면 해당 기능만 비활성화되고 나머지는 정상 동작)
+- `MONGO_URI`: 로그인 지속성(이름+출생연도 기반)에 필요 (없으면 세션 동안만 데이터 유지)
 
-def _client():
-    api_key = st.secrets.get("GEMINI_API_KEY", None)
-    if not api_key:
-        return None
-    return genai.Client(api_key=api_key)
+## 프로젝트 구조
+```
+app.py                 # 메인 Streamlit 앱 (UI/탭 구성)
+utils/config.py         # 자산/카테고리/뱃지/문항 등 정적 설정
+utils/core.py           # 유저 상태, XP/레벨/뱃지, 시세+호가창 시뮬레이션, 목표/예적금 로직
+utils/database.py       # MongoDB 연동 (선택)
+utils/ai_coach.py       # Gemini 기반 AI 코치 / 투자성향 진단
+```
 
-
-RISK_PROFILE_PROMPT = """\
-당신은 투자성향 진단 전문가입니다. 사용자가 5점 척도가 아닌 4개 문항(투자기간, 손실반응, 목표, 경험)에
-답한 점수 합계(4~12점)와 각 답변 내용을 보고, 아래 JSON 형식으로만 한국어로 응답하세요.
-
-- profile_name: "안정형" | "안정추구형" | "위험중립형" | "적극투자형" | "공격투자형" 중 점수에 맞는 하나
-  (4~5점: 안정형, 6~7점: 안정추구형, 8~9점: 위험중립형, 10~11점: 적극투자형, 12점: 공격투자형)
-- description: 이 성향에 대한 2~3문장 설명 (사용자의 답변 맥락을 반영)
-- recommended_allocation: {"주식/성장자산": 비중(%), "채권/안전자산": 비중(%), "현금성자산": 비중(%)} 형태,
-  총합 100이 되도록. 안정형일수록 채권/현금 비중을 높게, 공격투자형일수록 주식 비중을 높게.
-- caution: 이 성향의 사람이 특히 조심해야 할 점 1문장
-
-응답은 반드시 아래 JSON 형식으로만:
-{
-  "profile_name": "...",
-  "description": "...",
-  "recommended_allocation": {"주식/성장자산": 0, "채권/안전자산": 0, "현금성자산": 0},
-  "caution": "..."
-}
-"""
-
-
-def get_risk_profile(answers: list):
-    """answers: [{"q": 질문, "answer": 선택한 라벨, "score": 점수}, ...]"""
-    client = _client()
-    total_score = sum(a["score"] for a in answers)
-    if client is None:
-        return {
-            "profile_name": "진단 불가",
-            "description": "AI 코치를 사용하려면 secrets.toml에 GEMINI_API_KEY를 설정해주세요.",
-            "recommended_allocation": {}, "caution": "",
-        }
-    try:
-        resp = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=json.dumps({"total_score": total_score, "answers": answers}, ensure_ascii=False),
-            config=types.GenerateContentConfig(
-                system_instruction=RISK_PROFILE_PROMPT,
-                response_mime_type="application/json",
-            ),
-        )
-        text = resp.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        return json.loads(text)
-    except Exception as e:
-        return {
-            "profile_name": "오류",
-            "description": f"진단 생성 중 오류가 발생했습니다: {e}",
-            "recommended_allocation": {}, "caution": "",
-        }
-def get_financial_diagnosis(spending_by_category: dict, portfolio_summary: list, savings_total: int, cash: int):
-    """
-    spending_by_category: {"식비": 320000, "카페/간식": 150000, ...}
-    portfolio_summary: [{"name": "KODEX 200 ETF", "value": 500000, "type": "ETF"}, ...]
-    """
-    client = _client()
-    if client is None:
-        return {
-            "summary": "AI 코치를 사용하려면 secrets.toml에 GEMINI_API_KEY를 설정해주세요.",
-            "spending_insight": "", "investing_insight": "",
-            "action_items": [], "risk_level": "-",
-        }
-
-    payload = {
-        "cash": cash,
-        "spending_by_category": spending_by_category,
-        "portfolio": portfolio_summary,
-        "savings_total": savings_total,
-    }
-
-    try:
-        resp = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=json.dumps(payload, ensure_ascii=False),
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                response_mime_type="application/json",
-            ),
-        )
-        text = resp.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        return json.loads(text)
-    except Exception as e:
-        return {
-            "summary": f"진단 생성 중 오류가 발생했습니다: {e}",
-            "spending_insight": "", "investing_insight": "",
-            "action_items": [], "risk_level": "-",
-        }
+> ⚠️ 실제 시세·금융상품이 아닌 교육 목적의 가상 시뮬레이션입니다.

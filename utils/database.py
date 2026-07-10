@@ -1,126 +1,61 @@
 # utils/database.py
-# hyomin-portal-main 의 utils/database.py 패턴을 재사용.
-# (atomic 캐시 연산, MongoDB 연결 구조는 기존 검증된 로직 그대로 사용)
+# 로그인 지속성을 위한 최소 DB 연동. 비밀번호 없이 "이름+출생연도"를 키로 사용하는
+# 데모용 단순 저장소입니다. (같은 이름+출생연도를 쓰는 사람과 데이터가 겹칠 수 있음 — 데모 목적상 허용)
+# secrets에 MONGO_URI가 없으면 DB 없이도 앱은 정상 동작하고, 이 경우 세션이 끝나면 데이터가 초기화됩니다.
+import logging
 import streamlit as st
 from pymongo import MongoClient
-import logging
-import time as _time
 
-DB_NAME = "money_levelup"  # 기존 hyomin_universe 와 분리된 별도 DB
+DB_NAME = "money_levelup"
 
 
 @st.cache_resource
 def get_mongo_client():
     uri = st.secrets.get("MONGO_URI", None)
-    if uri:
-        return MongoClient(uri)
-    return None
+    if not uri:
+        return None
+    try:
+        client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+        client.admin.command("ping")  # 연결 즉시 확인 (실패 시 아래에서 None 처리)
+        return client
+    except Exception as e:
+        logging.error(f"[get_mongo_client] 연결 실패: {e}")
+        return None
 
 
-def _get_col(name: str):
+def _col(name: str):
     client = get_mongo_client()
     if client is None:
         return None
-    db = client[DB_NAME]
-    return db[name]
+    return client[DB_NAME][name]
 
 
-def load_db(name, default):
-    """MongoDB에서 데이터 불러오기 (재시도 1회 포함)"""
-    client = get_mongo_client()
-    if client is None:
-        st.error("❌ DB 연결 실패: MongoDB에 연결할 수 없습니다. secrets.toml의 MONGO_URI를 확인하세요.")
-        st.stop()
-    for attempt in range(2):
-        try:
-            col = _get_col(name)
-            doc = col.find_one({"_id": "main"})
-            if doc:
-                doc.pop("_id", None)
-                if "_list" in doc and len(doc) == 1:
-                    return doc["_list"]
-                return doc
-            return default
-        except Exception as e:
-            logging.error(f"[load_db] {name} 로드 실패 (시도 {attempt+1}/2): {e}")
-            if attempt == 0:
-                _time.sleep(0.5)
-                continue
-            st.warning(f"⚠️ DB 일시 오류. 일부 데이터가 최신이 아닐 수 있습니다. ({name})")
-            return default
-
-
-def save_db(name, data):
-    """MongoDB에 데이터 저장하기"""
-    if data is None:
-        return
-    client = get_mongo_client()
-    if client is None:
-        logging.error(f"[save_db] MongoDB 연결 없음 - {name} 저장 취소")
-        return
+def load_doc(collection: str, key: str, default):
+    col = _col(collection)
+    if col is None:
+        return default
     try:
-        col = _get_col(name)
-        if isinstance(data, list):
-            doc_to_save = {"_id": "main", "_list": data}
-        else:
-            doc_to_save = {"_id": "main", **data}
-        col.replace_one({"_id": "main"}, doc_to_save, upsert=True)
+        doc = col.find_one({"_id": key})
+        if doc:
+            doc.pop("_id", None)
+            return doc
+        return default
     except Exception as e:
-        logging.error(f"[save_db] {name} 저장 실패: {e}")
+        logging.error(f"[load_doc] {collection}/{key} 로드 실패: {e}")
+        return default
 
 
-def atomic_deduct_cash(uid: str, amount: int) -> bool:
-    """원자적 현금 차감 (Race Condition 방어) — hyomin-portal 로직 그대로 재사용."""
-    client = get_mongo_client()
-    if client is None:
+def save_doc(collection: str, key: str, data: dict):
+    col = _col(collection)
+    if col is None:
         return False
     try:
-        col = _get_col("users")
-        result = col.find_one_and_update(
-            {"_id": "main", f"{uid}.cash": {"$gte": amount}},
-            {"$inc": {f"{uid}.cash": -amount}},
-        )
-        return result is not None
-    except Exception as e:
-        logging.error(f"[atomic_deduct_cash] {uid} 차감 실패: {e}")
-        return False
-
-
-def atomic_add_cash(uid: str, amount: int) -> bool:
-    """원자적 현금 지급."""
-    client = get_mongo_client()
-    if client is None:
-        return False
-    try:
-        col = _get_col("users")
-        col.update_one({"_id": "main"}, {"$inc": {f"{uid}.cash": amount}}, upsert=True)
+        col.replace_one({"_id": key}, {"_id": key, **data}, upsert=True)
         return True
     except Exception as e:
-        logging.error(f"[atomic_add_cash] {uid} 지급 실패: {e}")
+        logging.error(f"[save_doc] {collection}/{key} 저장 실패: {e}")
         return False
 
 
-def log_tx(uid: str, tx: dict):
-    """거래/소비 내역 로그 (txlog 컬렉션에 append)."""
-    client = get_mongo_client()
-    if client is None:
-        return
-    try:
-        col = _get_col("txlog")
-        tx = {**tx, "uid": uid, "ts": _time.time()}
-        col.insert_one(tx)
-    except Exception as e:
-        logging.error(f"[log_tx] 실패: {e}")
-
-
-def load_tx(uid: str, limit: int = 200):
-    client = get_mongo_client()
-    if client is None:
-        return []
-    try:
-        col = _get_col("txlog")
-        cur = col.find({"uid": uid}).sort("ts", -1).limit(limit)
-        return list(cur)
-    except Exception as e:
-        logging.error(f"[load_tx] 실패: {e}")
-        return []
+def db_available() -> bool:
+    return get_mongo_client() is not None

@@ -1,12 +1,17 @@
 # utils/core.py
-# 로그인/DB 없이, 브라우저 세션 안에서만 동작하는 버전.
-# (제출/데모용 — 새로고침하거나 다른 사람이 열면 데이터는 초기화됩니다)
+# 이름+출생연도를 키로 하는 단순 지속성 버전 (비밀번호 없음, DB 연결 시 저장, 미연결 시 세션에만 유지)
 import time
 import random
+import uuid
+from datetime import date, timedelta
+
 import streamlit as st
+
 from utils.config import (
     ASSET_CONFIG, ASSET_BASE_PRICE, STARTING_CASH, NEWS_TEMPLATES, BADGES, LEVEL_XP_TABLE,
+    EXPENSE_CATEGORIES, ORDERBOOK_LEVELS, ORDERBOOK_TICK_RATIO,
 )
+from utils.database import load_doc, save_doc, db_available
 
 
 def format_korean_money(num):
@@ -27,28 +32,43 @@ def format_korean_money(num):
     return f"-{res}" if is_neg else res
 
 
-# ── 세션 유저 (로그인 없음, 세션당 1명) ──────────────────────────────────────
-def get_user():
+# ── 유저 (이름+출생연도 키, DB 연결 시 지속됨 / 미연결 시 세션에만 유지) ─────────
+def default_user():
+    return {
+        "cash": STARTING_CASH,
+        "portfolio": {},        # {asset_id: {"qty": int, "avg_price": float}}
+        "savings": [],          # [{id,name,icon,start,end,months,target_amount,rate,amount,created}, ...]
+        "tx_log": [],           # [{kind, ...}, ...]
+        "xp": 0,
+        "badges": [],           # [badge_id, ...]
+        "goal": None,           # {"name":..., "target":..., "created":..., "completed": bool}
+        "completed_goals_count": 0,
+        "risk_profile": None,   # AI 온보딩 진단 결과
+        "ai_coach_count": 0,
+        "nw_history": [],       # [{"ts":..., "value":...}] 순자산 추이
+    }
+
+
+def get_user(uid: str):
     if "user" not in st.session_state:
-        st.session_state.user = {
-            "cash": STARTING_CASH,
-            "portfolio": {},        # {asset_id: {"qty": int, "avg_price": float}}
-            "savings": [],
-            "tx_log": [],           # [{kind, ...}, ...]
-            "xp": 0,
-            "badges": [],           # [badge_id, ...]
-            "goal": None,           # {"name":..., "target":..., "created":...}
-            "risk_profile": None,   # AI 온보딩 진단 결과
-            "nw_history": [],       # [{"ts":..., "value":...}] 순자산 추이
-        }
+        loaded = load_doc("users", uid, None)
+        user = loaded if loaded else default_user()
+        # 이전 버전 데이터 호환: 새로 추가된 필드가 없으면 채워준다.
+        for k, v in default_user().items():
+            user.setdefault(k, v)
+        st.session_state.user = user
     return st.session_state.user
 
 
-def log_tx(tx: dict):
-    user = get_user()
+def save_user(uid: str, user: dict):
+    if db_available():
+        save_doc("users", uid, user)
+
+
+def log_tx(user: dict, tx: dict):
     tx = {**tx, "ts": time.time()}
     user["tx_log"].insert(0, tx)
-    user["tx_log"] = user["tx_log"][:200]
+    user["tx_log"] = user["tx_log"][:300]
 
 
 # ── XP / 레벨 / 뱃지 (확률 없는 100% 확정 지급형 성취 시스템) ─────────────────
@@ -76,66 +96,195 @@ def xp_progress(xp):
     level = get_level(xp)
     idx = level - 1
     cur_floor = LEVEL_XP_TABLE[idx] if idx < len(LEVEL_XP_TABLE) else LEVEL_XP_TABLE[-1]
-    next_ceil = LEVEL_XP_TABLE[idx + 1] if idx + 1 < len(LEVEL_XP_TABLE) else cur_floor + 500
+    next_ceil = LEVEL_XP_TABLE[idx + 1] if idx + 1 < len(LEVEL_XP_TABLE) else cur_floor + 1200
     pct = min(1.0, (xp - cur_floor) / max(1, next_ceil - cur_floor))
     return level, pct, next_ceil
-
-
-def check_habit_badges(user):
-    """지출 기록 수, 보유 자산군 다양성 등 조건을 매번 점검해 새 뱃지가 있으면 지급."""
-    newly = []
-    n_expense = len([t for t in user["tx_log"] if t.get("kind") == "expense"])
-    if n_expense >= 1 and award_badge(user, "first_record"):
-        newly.append("first_record")
-    if n_expense >= 10 and award_badge(user, "record_10"):
-        newly.append("record_10")
-
-    n_invest = len([t for t in user["tx_log"] if t.get("kind") == "invest_buy"])
-    if n_invest >= 1 and award_badge(user, "first_invest"):
-        newly.append("first_invest")
-
-    types_held = {ASSET_BY_ID_CACHE()[aid]["type"] for aid in user.get("portfolio", {}) if user["portfolio"][aid]["qty"] > 0}
-    if len(types_held) >= 3 and award_badge(user, "diversified"):
-        newly.append("diversified")
-
-    if user.get("savings") and award_badge(user, "first_saving"):
-        newly.append("first_saving")
-
-    if user.get("goal") and award_badge(user, "goal_set"):
-        newly.append("goal_set")
-
-    return newly
 
 
 def ASSET_BY_ID_CACHE():
     return {a["id"]: a for a in ASSET_CONFIG}
 
 
-# ── 목표 저축 ────────────────────────────────────────────────────────────
+def total_saving_amount(user):
+    return sum(s.get("amount", 0) for s in user.get("savings", []))
+
+
+def check_habit_badges(user, market):
+    """모든 습관/성취 조건을 매번 점검해 새로 달성한 뱃지가 있으면 지급하고 id 목록을 반환."""
+    newly = []
+
+    tx = user["tx_log"]
+    n_expense = len([t for t in tx if t.get("kind") == "expense"])
+    if n_expense >= 1 and award_badge(user, "first_record"):
+        newly.append("first_record")
+    if n_expense >= 10 and award_badge(user, "record_10"):
+        newly.append("record_10")
+    if n_expense >= 30 and award_badge(user, "record_30"):
+        newly.append("record_30")
+
+    cats_used = {t["category"] for t in tx if t.get("kind") == "expense"}
+    if len(cats_used) >= len(EXPENSE_CATEGORIES) and award_badge(user, "category_master"):
+        newly.append("category_master")
+
+    n_invest = len([t for t in tx if t.get("kind") == "invest_buy"])
+    if n_invest >= 1 and award_badge(user, "first_invest"):
+        newly.append("first_invest")
+
+    n_trades = len([t for t in tx if t.get("kind") in ("invest_buy", "invest_sell")])
+    if n_trades >= 10 and award_badge(user, "trade_10"):
+        newly.append("trade_10")
+
+    assets_by_id = ASSET_BY_ID_CACHE()
+    held_ids = [aid for aid, pos in user.get("portfolio", {}).items() if pos.get("qty", 0) > 0]
+    types_held = {assets_by_id[aid]["type"] for aid in held_ids if aid in assets_by_id}
+    if len(types_held) >= 3 and award_badge(user, "diversified"):
+        newly.append("diversified")
+    if len(types_held) >= 5 and award_badge(user, "diversified_plus"):
+        newly.append("diversified_plus")
+    if len(held_ids) >= len(ASSET_CONFIG) and award_badge(user, "all_assets"):
+        newly.append("all_assets")
+
+    sell_txs = [t for t in tx if t.get("kind") == "invest_sell"]
+    if any(t.get("pnl", 0) > 0 for t in sell_txs) and award_badge(user, "profit_take"):
+        newly.append("profit_take")
+    if any(t.get("pnl_pct", 0) >= 15 for t in sell_txs) and award_badge(user, "big_win"):
+        newly.append("big_win")
+
+    if user.get("savings") and award_badge(user, "first_saving"):
+        newly.append("first_saving")
+    if len(user.get("savings", [])) >= 3 and award_badge(user, "multi_saving"):
+        newly.append("multi_saving")
+
+    save_total = total_saving_amount(user)
+    if save_total >= 1_000_000 and award_badge(user, "saving_1000"):
+        newly.append("saving_1000")
+    if save_total >= 5_000_000 and award_badge(user, "saving_5000"):
+        newly.append("saving_5000")
+
+    if user.get("goal") and award_badge(user, "goal_set"):
+        newly.append("goal_set")
+    if (user.get("goal") or {}).get("completed") and award_badge(user, "goal_reached"):
+        newly.append("goal_reached")
+    if user.get("completed_goals_count", 0) >= 3 and award_badge(user, "goal_reached_x3"):
+        newly.append("goal_reached_x3")
+
+    if user.get("ai_coach_count", 0) >= 1 and award_badge(user, "ai_first"):
+        newly.append("ai_first")
+    if user.get("ai_coach_count", 0) >= 5 and award_badge(user, "ai_veteran"):
+        newly.append("ai_veteran")
+
+    if user.get("risk_profile") and award_badge(user, "risk_profile_done"):
+        newly.append("risk_profile_done")
+
+    level = get_level(user["xp"])
+    if level >= 5 and award_badge(user, "level_5"):
+        newly.append("level_5")
+    if level >= 10 and award_badge(user, "level_10"):
+        newly.append("level_10")
+
+    nw = get_net_worth(user, market)
+    if nw >= 5_000_000 and award_badge(user, "net_worth_500"):
+        newly.append("net_worth_500")
+    if nw >= 10_000_000 and award_badge(user, "net_worth_1000"):
+        newly.append("net_worth_1000")
+    if nw >= 30_000_000 and award_badge(user, "net_worth_3000"):
+        newly.append("net_worth_3000")
+
+    return newly
+
+
+# ── 목표 저축 (하나의 대표 목표를 저축 총액 기준으로 추적) ─────────────────────
 def set_goal(user, name, target):
-    user["goal"] = {"name": name, "target": target, "created": time.time()}
+    user["goal"] = {"name": name, "target": target, "created": time.time(), "completed": False}
 
 
 def goal_progress(user):
     g = user.get("goal")
     if not g:
         return None
-    save_val = sum(s["amount"] for s in user.get("savings", []))
+    save_val = total_saving_amount(user)
     pct = min(1.0, save_val / g["target"]) if g["target"] > 0 else 0
-    return {"name": g["name"], "target": g["target"], "current": save_val, "pct": pct}
+    if pct >= 1.0 and not g.get("completed"):
+        g["completed"] = True
+        user["completed_goals_count"] = user.get("completed_goals_count", 0) + 1
+    return {"name": g["name"], "target": g["target"], "current": save_val,
+            "pct": pct, "completed": g.get("completed", False)}
 
 
-# ── 시세 (세션 안에서 랜덤워크+뉴스 이벤트 시뮬레이션) ────────────────────────
+# ── 예/적금 (이름·기간·목표금액을 자유롭게 입력해 나만의 상품을 생성) ────────────
+def create_saving(name, start_date_str, months, target_amount, rate, initial_amount, icon="🏦"):
+    start = date.fromisoformat(start_date_str)
+    end = (start + timedelta(days=months * 30)).isoformat() if months and months > 0 else None
+    return {
+        "id": uuid.uuid4().hex[:10],
+        "name": name,
+        "icon": icon,
+        "start": start_date_str,
+        "end": end,
+        "months": months or 0,
+        "target_amount": int(target_amount or 0),
+        "rate": float(rate or 0),
+        "amount": int(initial_amount or 0),
+        "created": time.time(),
+    }
+
+
+def saving_progress(s):
+    """기간 진행률(time_pct)과 금액 진행률(amount_pct)을 각각 계산 — 없으면 None."""
+    today = date.today()
+    try:
+        start = date.fromisoformat(s["start"])
+    except Exception:
+        start = today
+
+    time_pct, days_left, matured = None, None, False
+    if s.get("end"):
+        try:
+            end = date.fromisoformat(s["end"])
+            total_days = max(1, (end - start).days)
+            elapsed = (today - start).days
+            time_pct = min(1.0, max(0.0, elapsed / total_days))
+            days_left = max(0, (end - today).days)
+            matured = today >= end
+        except Exception:
+            pass
+
+    amount_pct = None
+    if s.get("target_amount"):
+        amount_pct = min(1.0, s.get("amount", 0) / s["target_amount"]) if s["target_amount"] > 0 else 0.0
+
+    return {"time_pct": time_pct, "amount_pct": amount_pct, "days_left": days_left, "matured": matured}
+
+
+# ── 시세 (세션 안에서 랜덤워크+뉴스 이벤트 시뮬레이션) + 모의 호가창 ────────────
 def get_market():
     if "market" not in st.session_state:
         st.session_state.market = {
             "prices": {a["id"]: ASSET_BASE_PRICE[a["id"]] for a in ASSET_CONFIG},
             "history": {a["id"]: [ASSET_BASE_PRICE[a["id"]]] for a in ASSET_CONFIG},
             "history_t": {a["id"]: [time.time()] for a in ASSET_CONFIG},
-            "last_tick": time.time(),
+            "orderbook": {},
+            "last_tick": 0,
             "news": [],
         }
+        _refresh_orderbooks(st.session_state.market)
     return st.session_state.market
+
+
+def _refresh_orderbooks(m):
+    for a in ASSET_CONFIG:
+        m["orderbook"][a["id"]] = generate_orderbook(m["prices"][a["id"]])
+
+
+def generate_orderbook(price):
+    """현재가 주변에 매수(bid)/매도(ask) 각 N호가를 랜덤 잔량으로 생성 (실시세 연동 아님)."""
+    tick = max(1, round(price * ORDERBOOK_TICK_RATIO / 10) * 10)
+    asks = [{"price": round(price + tick * i), "qty": random.randint(5, 320)}
+            for i in range(ORDERBOOK_LEVELS, 0, -1)]
+    bids = [{"price": max(1, round(price - tick * i)), "qty": random.randint(5, 320)}
+            for i in range(1, ORDERBOOK_LEVELS + 1)]
+    max_qty = max([o["qty"] for o in asks + bids] + [1])
+    return {"asks": asks, "bids": bids, "max_qty": max_qty, "ts": time.time()}
 
 
 def tick_market(min_interval_sec=15):
@@ -148,7 +297,7 @@ def tick_market(min_interval_sec=15):
         news_event = random.choice(NEWS_TEMPLATES)
         m["news"].insert(0, {"ts": time.time(), "text": news_event["text"],
                               "asset": news_event["asset"], "impact": news_event["impact"]})
-        m["news"] = m["news"][:20]
+        m["news"] = m["news"][:30]
 
     now = time.time()
     for a in ASSET_CONFIG:
@@ -163,6 +312,7 @@ def tick_market(min_interval_sec=15):
         m["history"][aid] = m["history"][aid][-100:]
         m.setdefault("history_t", {}).setdefault(aid, []).append(now)
         m["history_t"][aid] = m["history_t"][aid][-100:]
+    _refresh_orderbooks(m)
     m["last_tick"] = now
     return m
 
@@ -171,8 +321,7 @@ def get_net_worth(user, market):
     w = user.get("cash", 0)
     for aid, pos in user.get("portfolio", {}).items():
         w += pos.get("qty", 0) * market["prices"].get(aid, 0)
-    for s in user.get("savings", []):
-        w += s.get("amount", 0)
+    w += total_saving_amount(user)
     return w
 
 
