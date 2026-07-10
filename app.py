@@ -292,6 +292,117 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'I
 .scam-grade.g-danger  { background: #F3D4CB; color: #8A2E1C; border: 1px solid #8A2E1C; }
 .liq-banner { background: #F3D4CB; border: 1px solid #8A2E1C; color: #6B2314; border-radius: 12px;
     padding: 12px 16px; font-weight: 700; margin: 10px 0; }
+
+/* ══════════════════════════════════════════════════════════════════
+   UI/UX 강화 패치 — Streamlit 기본 위젯을 "통장/원장" 톤에 맞춰 재단장
+   (기존 색상 변수·기존 커스텀 클래스는 그대로 재사용, 신규 규칙만 추가)
+   ══════════════════════════════════════════════════════════════════ */
+
+/* 전체 진입 애니메이션 */
+.main .block-container { animation: ml-fade-in .45s ease-out; }
+@keyframes ml-fade-in { from { opacity: 0; transform: translateY(6px);} to { opacity: 1; transform: translateY(0);} }
+
+/* 스크롤바 */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: var(--paper); }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--brand); }
+
+/* ── 탭 내비게이션: 원장 인덱스 탭처럼 ── */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 4px; background: var(--paper-2); padding: 6px; border-radius: 14px;
+    border: 1px solid var(--line); box-shadow: inset 0 1px 2px rgba(28,43,36,0.04);
+    flex-wrap: wrap;
+}
+.stTabs [data-baseweb="tab"] {
+    height: auto; padding: 8px 16px; border-radius: 10px; background: transparent;
+    color: var(--ink-soft); font-family: 'Noto Sans KR', sans-serif; font-weight: 600; font-size: 0.88rem;
+    transition: background .15s, color .15s;
+}
+.stTabs [data-baseweb="tab"]:hover { background: var(--brand-soft); color: var(--brand-deep); }
+.stTabs [aria-selected="true"] {
+    background: var(--brand) !important; color: #fff !important;
+    box-shadow: 0 3px 0 var(--brand-deep);
+}
+.stTabs [data-baseweb="tab-highlight"] { display: none; }
+.stTabs [data-baseweb="tab-border"] { display: none; }
+.stTabs [data-baseweb="tab-panel"] { padding-top: 18px; }
+
+/* ── 버튼: 은행 창구 버튼 느낌 ── */
+.stButton > button {
+    border: 1px solid var(--line) !important; background: var(--paper-2) !important;
+    color: var(--ink) !important; font-weight: 700 !important; font-family: 'Noto Sans KR', sans-serif !important;
+    transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; padding: 0.5rem 1.1rem !important;
+}
+.stButton > button:hover { border-color: var(--brand) !important; color: var(--brand-deep) !important; transform: translateY(-1px); }
+.stButton > button:active { transform: translateY(0); }
+.stButton > button[kind="primary"], .stButton > button[data-testid="baseButton-primary"] {
+    background: var(--brand) !important; border: 1px solid var(--brand-deep) !important; color: #fff !important;
+    box-shadow: 0 3px 0 var(--brand-deep) !important;
+}
+.stButton > button[kind="primary"]:hover, .stButton > button[data-testid="baseButton-primary"]:hover {
+    color: #fff !important; filter: brightness(1.05); transform: translateY(-1px);
+    box-shadow: 0 4px 0 var(--brand-deep) !important;
+}
+.stDownloadButton > button { border-radius: 10px !important; border: 1px dashed var(--gold) !important;
+    background: var(--gold-soft) !important; color: var(--gold) !important; font-weight: 700 !important; }
+
+/* ── 입력 위젯: 통장 기입란처럼 ── */
+div[data-baseweb="input"], div[data-baseweb="select"] > div, div[data-baseweb="textarea"] textarea {
+    border-radius: 10px !important; border-color: var(--line) !important; background: var(--paper-2) !important;
+}
+div[data-baseweb="input"]:focus-within, div[data-baseweb="select"]:focus-within > div {
+    border-color: var(--brand) !important; box-shadow: 0 0 0 2px var(--brand-soft) !important;
+}
+.stSlider [data-baseweb="slider"] div[role="slider"] { background: var(--brand) !important; border-color: var(--brand-deep) !important; }
+.stSlider [data-baseweb="slider"] > div > div { background: var(--brand) !important; }
+
+/* ── 라디오/체크박스: 도장 선택지처럼 ── */
+div[role="radiogroup"] label, .stCheckbox label { border-radius: 10px !important; }
+div[role="radiogroup"] label:has(input:checked) {
+    background: var(--brand-soft); border: 1px solid var(--brand); border-radius: 10px; padding: 2px 8px;
+}
+
+/* ── 폼 컨테이너 & 보더 컨테이너 ── */
+div[data-testid="stForm"] {
+    background: var(--paper-2); border: 1px solid var(--line) !important; border-radius: 16px !important;
+    padding: 18px 20px !important; box-shadow: 0 4px 14px -10px rgba(28,43,36,0.25);
+}
+div[data-testid="stVerticalBlockBorderWrapper"] > div[data-testid="stVerticalBlock"] {
+    border-radius: 16px !important;
+}
+[data-testid="stExpander"] {
+    border: 1px solid var(--line) !important; border-radius: 14px !important; background: var(--paper-2) !important;
+    overflow: hidden;
+}
+[data-testid="stExpander"] summary { font-weight: 700 !important; color: var(--ink) !important; }
+
+/* ── 진행률 바: 저금통 채워지는 느낌 ── */
+div[data-testid="stProgress"] > div > div { background: var(--line) !important; border-radius: 999px !important; }
+div[data-testid="stProgress"] > div > div > div {
+    background: linear-gradient(90deg, var(--brand), #3FA179) !important; border-radius: 999px !important;
+}
+
+/* ── 알림 박스: 종이 메모지 톤 ── */
+div[data-testid="stAlert"] { border-radius: 12px !important; border-width: 1px !important; font-size: 0.9rem; }
+div[data-testid="stNotificationContentInfo"] { color: var(--navy) !important; }
+div[data-testid="stNotificationContentSuccess"] { color: var(--brand-deep) !important; }
+div[data-testid="stNotificationContentWarning"] { color: #8A5A1F !important; }
+div[data-testid="stNotificationContentError"] { color: var(--coral) !important; }
+
+/* ── 사이드바: 창구 데스크 톤 ── */
+[data-testid="stSidebar"] .stButton > button { width: 100%; }
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 { font-size: 1.05rem !important; }
+
+/* ── 링크 컬러 통일 ── */
+a, a:visited { color: var(--brand-deep) !important; }
+
+/* ── 반응형: 좁은 화면에서 히어로/탭 여백 축소 ── */
+@media (max-width: 640px) {
+    .ml-hero { padding: 18px 18px; border-radius: 16px; }
+    .ml-hero h1 { font-size: 1.4rem; }
+    .stTabs [data-baseweb="tab"] { padding: 7px 10px; font-size: 0.78rem; }
+}
 </style>
 """
 
@@ -1325,8 +1436,27 @@ def render_signup_gate():
     st.markdown("""<div class="ml-hero">
         <div class="eyebrow">MONEY PASSBOOK · Lv.1 부터 시작</div>
         <h1>💡 머니레벨업</h1>
-        <p>사회초년생을 위한 AI 소비·투자 코칭 모의 서비스</p>
+        <p>사회초년생을 위한 AI 소비·투자 코칭 모의 서비스 — 실제 돈 없이, 실패해도 되는 연습장</p>
         </div>""", unsafe_allow_html=True)
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        st.markdown("""<div class="asset-card" style="min-height:108px">
+            <div style="font-size:1.5rem">🧭</div>
+            <div class="a-name" style="margin-top:4px">AI가 나의 성향을 진단</div>
+            <div style="font-size:0.78rem;color:var(--ink-soft);margin-top:2px">10문항으로 투자성향·자산배분 추천</div>
+            </div>""", unsafe_allow_html=True)
+    with f2:
+        st.markdown("""<div class="asset-card" style="min-height:108px">
+            <div style="font-size:1.5rem">🚨</div>
+            <div class="a-name" style="margin-top:4px">위험은 여기서 먼저 겪는다</div>
+            <div style="font-size:0.78rem;color:var(--ink-soft);margin-top:2px">사기·레버리지·폭락장을 가상으로 미리 체험</div>
+            </div>""", unsafe_allow_html=True)
+    with f3:
+        st.markdown("""<div class="asset-card" style="min-height:108px">
+            <div style="font-size:1.5rem">🏅</div>
+            <div class="a-name" style="margin-top:4px">기록이 곧 레벨이 된다</div>
+            <div style="font-size:0.78rem;color:var(--ink-soft);margin-top:2px">가계부·저축 습관이 XP와 뱃지로 쌓임</div>
+            </div>""", unsafe_allow_html=True)
     with st.container(border=True):
         st.subheader("시작하기 전에")
         if db_available():
