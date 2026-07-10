@@ -10,6 +10,8 @@ import streamlit as st
 from utils.config import (
     ASSET_CONFIG, ASSET_BASE_PRICE, STARTING_MOCK_CASH, STARTING_REAL_CASH,
     NEWS_TEMPLATES, BADGES, LEVEL_XP_TABLE, EXPENSE_CATEGORIES, ORDERBOOK_LEVELS, ORDERBOOK_TICK_RATIO,
+    SCAM_SCENARIOS, LEVERAGE_SEED, LEVERAGE_SIM_DAYS, LEVERAGE_MAINTENANCE_RATIO,
+    CRISIS_SCENARIOS, CRISIS_DECISION_CHOICES,
 )
 from utils.database import load_doc, save_doc, db_available
 
@@ -51,6 +53,13 @@ def default_user(initial_real_cash: int = None, initial_savings: int = 0):
         "ai_coach_count": 0,
         "nw_history": [],       # [{"ts":..., "value":...}] 순자산 추이 (실제+모의 합산, 게임 지표용)
         "chat_history": [],     # [{"role": "user"|"coach", "text": ...}, ...]  ※ AI 상담 챗봇 전용
+        "risk_lab": {           # 🚨 리스크 체험관 (실제/모의 자금과 완전히 분리된 학습 전용 기록)
+            "scam_scores": {},           # {scenario_id: 획득 점수(0/5/10 등)}
+            "leverage_trials": 0,        # 레버리지 시뮬레이터 실행 횟수
+            "leverage_liquidations": 0,  # 청산(강제 로스컷) 경험 횟수
+            "leverage_survive_5x": 0,    # 5배 이상에서 청산 없이 생존한 연속 횟수
+            "crisis_completed": {},      # {scenario_id: {"final_value":..., "baseline_value":..., "decisions":[...]}}
+        },
     }
     if initial_real_cash:
         log_tx(user, {"kind": "income", "category": "etc_in", "amount": int(initial_real_cash),
@@ -529,3 +538,187 @@ def predict_next_month_expense(user):
         "forecast_by_category": forecast_by_cat,
         "anomaly": is_anomaly_month,
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🚨 리스크 체험관 로직 — 실제/모의 자금과 완전히 분리된 학습 전용 시뮬레이션
+# ══════════════════════════════════════════════════════════════════════════
+SCAM_BY_ID = {s["id"]: s for s in SCAM_SCENARIOS}
+CRISIS_BY_ID = {c["id"]: c for c in CRISIS_SCENARIOS}
+SCAM_MAX_SCORE = len(SCAM_SCENARIOS) * 10
+
+
+def record_scam_answer(user, scenario_id: str, choice_index: int):
+    """사용자의 선택을 기록하고, 이번 선택에 대한 피드백 dict를 반환한다 (최고 점수만 누적 반영)."""
+    scenario = SCAM_BY_ID[scenario_id]
+    choice = scenario["choices"][choice_index]
+    rl = user["risk_lab"]
+    prev = rl["scam_scores"].get(scenario_id, -1)
+    if choice["score"] > prev:
+        rl["scam_scores"][scenario_id] = choice["score"]
+    return choice
+
+
+def scam_lab_summary(user):
+    rl = user["risk_lab"]
+    total = sum(rl["scam_scores"].values())
+    completed = len(rl["scam_scores"])
+    if total >= SCAM_MAX_SCORE * 0.9:
+        grade, comment = "사기 방어 마스터", "패턴을 정확히 꿰뚫고 있어요. 주변 사람에게도 알려주면 더 좋아요."
+    elif total >= SCAM_MAX_SCORE * 0.65:
+        grade, comment = "양호", "핵심은 잘 짚고 있지만, 몇 가지 유형은 한 번 더 복습해두면 좋아요."
+    elif total >= SCAM_MAX_SCORE * 0.35:
+        grade, comment = "주의 필요", "그럴듯한 말에 판단이 흔들릴 수 있어요. 원칙 위주로 다시 점검해봐요."
+    else:
+        grade, comment = "위험", "지금 패턴이라면 실제 상황에서 위험할 수 있어요. 시나리오를 다시 복습해보세요."
+    return {"total": total, "max": SCAM_MAX_SCORE, "completed": completed,
+            "n_scenarios": len(SCAM_SCENARIOS), "grade": grade, "comment": comment}
+
+
+def run_leverage_simulation(asset_id: str, leverage: int):
+    """자산의 변동성(vol)을 바탕으로 LEVERAGE_SIM_DAYS일간의 랜덤워크를 생성하고,
+    레버리지 적용 시 계좌(가상 시드머니 LEVERAGE_SEED 기준)와 무레버리지(1배) 계좌를 나란히 비교한다.
+    실제/모의 자금과 완전히 분리된 결과만 반환하며 user 데이터는 건드리지 않는다."""
+    asset = ASSET_BY_ID_CACHE()[asset_id]
+    vol = asset["vol"]
+    daily_returns = [random.gauss(-0.0006, vol) for _ in range(LEVERAGE_SIM_DAYS)]
+
+    equity_lev = [float(LEVERAGE_SEED)]
+    equity_base = [float(LEVERAGE_SEED)]
+    liquidated_day = None
+    floor = LEVERAGE_SEED * LEVERAGE_MAINTENANCE_RATIO
+
+    for day, r in enumerate(daily_returns, start=1):
+        base_val = equity_base[-1] * (1 + r)
+        equity_base.append(max(0.0, base_val))
+
+        if liquidated_day is not None:
+            equity_lev.append(0.0)
+            continue
+        lev_val = equity_lev[-1] * (1 + r * leverage)
+        if lev_val <= floor:
+            equity_lev.append(0.0)
+            liquidated_day = day
+        else:
+            equity_lev.append(lev_val)
+
+    return {
+        "asset_name": asset["name"], "leverage": leverage,
+        "equity_lev": equity_lev, "equity_base": equity_base,
+        "liquidated": liquidated_day is not None, "liquidated_day": liquidated_day,
+        "final_lev": equity_lev[-1], "final_base": equity_base[-1],
+        "seed": LEVERAGE_SEED,
+    }
+
+
+def record_leverage_trial(user, result: dict):
+    """레버리지 시뮬레이션 1회 실행 결과를 유저 기록에 반영한다 (뱃지/통계 목적)."""
+    rl = user["risk_lab"]
+    rl["leverage_trials"] = rl.get("leverage_trials", 0) + 1
+    if result["liquidated"]:
+        rl["leverage_liquidations"] = rl.get("leverage_liquidations", 0) + 1
+        rl["leverage_survive_5x"] = 0
+    elif result["leverage"] >= 5:
+        rl["leverage_survive_5x"] = rl.get("leverage_survive_5x", 0) + 1
+
+
+def _crisis_path(control_points):
+    """제어점(day, index값) 목록을 선형보간해 하루 단위 지수 배열로 만들고,
+    약간의 노이즈를 더해 자연스러운 일별 흐름을 만든다."""
+    days = control_points[-1][0]
+    path = []
+    cp = control_points
+    for d in range(days + 1):
+        seg = next(i for i in range(len(cp) - 1) if cp[i][0] <= d <= cp[i + 1][0])
+        d0, v0 = cp[seg]
+        d1, v1 = cp[seg + 1]
+        t = 0 if d1 == d0 else (d - d0) / (d1 - d0)
+        base = v0 + (v1 - v0) * t
+        noise = random.gauss(0, base * 0.006)
+        path.append(max(1.0, base + noise))
+    path[0] = float(control_points[0][1])
+    return path
+
+
+def get_crisis_path(scenario_id: str):
+    """세션 동안 동일한 시나리오는 같은 경로를 유지 (재실행 버튼으로만 재생성)."""
+    key = f"_crisis_path_{scenario_id}"
+    if key not in st.session_state:
+        st.session_state[key] = _crisis_path(CRISIS_BY_ID[scenario_id]["control_points"])
+    return st.session_state[key]
+
+
+def reset_crisis_path(scenario_id: str):
+    st.session_state.pop(f"_crisis_path_{scenario_id}", None)
+
+
+def simulate_crisis_decisions(scenario_id: str, decisions: dict):
+    """decisions: {decision_day: choice_id} (choice_id는 CRISIS_DECISION_CHOICES의 id)
+    가상 투자금 1,000,000원을 시작 시점에 전액 투입했다고 가정하고, 각 결정 시점의 선택에 따라
+    최종 결과값과 '아무 결정도 안 하고 계속 보유(buy&hold)'했을 때를 비교한다."""
+    path = get_crisis_path(scenario_id)
+    scenario = CRISIS_BY_ID[scenario_id]
+    seed = 1_000_000
+    units = seed / path[0]     # 보유 좌수
+    banked_cash = 0.0          # 매도해서 현금화한 금액 (재투자하지 않음)
+    extra_invested = 0.0       # 물타기로 추가 투입한 원금 (원금 대비 비교용)
+    user_curve = []
+
+    for day, val in enumerate(path):
+        if day in decisions:
+            choice = decisions[day]
+            if choice == "sell_all":
+                banked_cash += units * val
+                units = 0.0
+            elif choice == "sell_half":
+                banked_cash += (units * 0.5) * val
+                units *= 0.5
+            elif choice == "buy_more":
+                units += seed / val
+                extra_invested += seed
+            # "hold"는 변화 없음
+        user_curve.append(banked_cash + units * val)
+
+    final_value = user_curve[-1]
+    baseline_value = (seed / path[0]) * path[-1]  # 아무 결정 없이 처음부터 끝까지 보유
+    total_principal = seed + extra_invested
+
+    return {
+        "scenario": scenario, "path": path, "user_curve": user_curve,
+        "final_value": final_value, "baseline_value": baseline_value,
+        "principal": total_principal, "decisions": decisions,
+    }
+
+
+def record_crisis_result(user, scenario_id: str, result: dict):
+    rl = user["risk_lab"]
+    rl["crisis_completed"][scenario_id] = {
+        "final_value": result["final_value"],
+        "baseline_value": result["baseline_value"],
+        "principal": result["principal"],
+    }
+
+
+def check_risk_lab_badges(user):
+    """리스크 체험관 전용 뱃지를 점검해 지급하고, 새로 획득한 뱃지 id 목록을 반환한다."""
+    newly = []
+    rl = user["risk_lab"]
+
+    if len(rl.get("scam_scores", {})) >= 1 and award_badge(user, "scam_shield_first"):
+        newly.append("scam_shield_first")
+    if sum(rl.get("scam_scores", {}).values()) >= SCAM_MAX_SCORE and award_badge(user, "scam_shield_master"):
+        newly.append("scam_shield_master")
+
+    if rl.get("leverage_trials", 0) >= 1 and award_badge(user, "leverage_tried"):
+        newly.append("leverage_tried")
+    if rl.get("leverage_liquidations", 0) >= 1 and award_badge(user, "leverage_liquidated"):
+        newly.append("leverage_liquidated")
+    if rl.get("leverage_survive_5x", 0) >= 3 and award_badge(user, "leverage_survivor"):
+        newly.append("leverage_survivor")
+
+    if len(rl.get("crisis_completed", {})) >= 1 and award_badge(user, "crisis_navigator"):
+        newly.append("crisis_navigator")
+    if len(rl.get("crisis_completed", {})) >= len(CRISIS_SCENARIOS) and award_badge(user, "crisis_all_clear"):
+        newly.append("crisis_all_clear")
+
+    return newly
