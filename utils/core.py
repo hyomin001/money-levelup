@@ -3,6 +3,7 @@
 import time
 import random
 import uuid
+import hashlib
 from datetime import date, timedelta
 
 import streamlit as st
@@ -61,6 +62,7 @@ def default_user(initial_real_cash: int = None, initial_savings: int = 0):
             "crisis_completed": {},      # {scenario_id: {"final_value":..., "baseline_value":..., "decisions":[...]}}
         },
         "guide_seen": False,    # 📖 첫 방문 이용 가이드를 이미 봤는지 여부
+        "pin_hash": None,       # 🔐 4자리 PIN 해시 (동명이인+동일 출생연도 계정 충돌 방지용)
     }
     if initial_real_cash:
         log_tx(user, {"kind": "income", "category": "etc_in", "amount": int(initial_real_cash),
@@ -73,7 +75,30 @@ def default_user(initial_real_cash: int = None, initial_savings: int = 0):
     return user
 
 
-def get_user(uid: str, initial_real_cash: int = None, initial_savings: int = 0):
+def _hash_pin(pin: str) -> str:
+    return hashlib.sha256(f"ml-pin::{pin}".encode()).hexdigest()
+
+
+def verify_pin(uid: str, pin: str):
+    """로그인 시 PIN 검증. 이름+출생연도만으로는 동명이인이 서로의 데이터를 볼 수 있어서
+    4자리 PIN으로 한 겹 더 확인한다.
+    반환: (통과 여부, 에러 메시지 또는 None)
+    - 해당 uid로 저장된 기록이 아직 없으면(신규 유저) 통과 — 이번에 입력한 PIN이 앞으로의 PIN이 됨.
+    - 기록은 있는데 PIN이 설정된 적 없으면(이 기능 추가 이전 데이터) 통과 — 이번 PIN으로 새로 설정됨.
+    - 기록에 PIN이 있으면 반드시 일치해야 통과.
+    """
+    existing = load_doc("users", uid, None)
+    if not existing:
+        return True, None
+    stored = existing.get("pin_hash")
+    if not stored:
+        return True, None
+    if stored == _hash_pin(pin):
+        return True, None
+    return False, "PIN이 일치하지 않아요. 이름·출생연도·PIN을 다시 확인해주세요."
+
+
+def get_user(uid: str, initial_real_cash: int = None, initial_savings: int = 0, pin: str = None):
     if "user" not in st.session_state:
         loaded = load_doc("users", uid, None)
         is_new = loaded is None
@@ -87,6 +112,9 @@ def get_user(uid: str, initial_real_cash: int = None, initial_savings: int = 0):
         # 새로 추가된 필드가 없으면 채워준다.
         for k, v in default_user().items():
             user.setdefault(k, v)
+        # PIN이 아직 설정 안 되어 있으면(신규 유저 또는 이 기능 추가 이전 데이터) 이번 PIN으로 설정
+        if pin and not user.get("pin_hash"):
+            user["pin_hash"] = _hash_pin(pin)
         st.session_state.user = user
         st.session_state["_is_new_user"] = is_new
     return st.session_state.user

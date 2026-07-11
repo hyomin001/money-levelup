@@ -1,4 +1,5 @@
 # app.py — 머니레벨업: 사회초년생을 위한 AI 금융 코칭 모의투자 앱
+import html
 import time
 from datetime import date
 
@@ -27,6 +28,7 @@ from utils.core import (
     get_crisis_path, reset_crisis_path, simulate_crisis_decisions, record_crisis_result,
     check_risk_lab_badges,
     spending_persona, estimate_retirement,
+    verify_pin,
 )
 from utils.ai_coach import get_financial_diagnosis, get_risk_profile, get_full_report, chat_with_coach
 from utils.database import db_available
@@ -64,60 +66,62 @@ def relative_time(ts):
 PLOTLY_DARK = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(color="#3C4A40", family="Noto Sans KR, sans-serif"),
+    font=dict(color="#4B4C68", family="Noto Sans KR, sans-serif"),
     margin=dict(l=10, r=10, t=10, b=10),
 )
 
-UP_COLOR, DOWN_COLOR = "#B8442F", "#2F5D8A"      # 국내 시세 관행: 상승=빨강, 하락=파랑
-GAIN_COLOR, LOSS_COLOR = "#0E7C5A", "#B8442F"     # 순자산 추이: 늘면 초록, 줄면 빨강
-PIE_COLORS = ["#0E7C5A", "#B8862F", "#2F5D8A", "#B8442F", "#6B8F71", "#8C6D46", "#4C7A6B", "#9AA5C0"]
+UP_COLOR, DOWN_COLOR = "#FF4D6D", "#3E7BFA"      # 국내 시세 관행: 상승=빨강, 하락=파랑
+GAIN_COLOR, LOSS_COLOR = "#6C4CF1", "#FF4D6D"     # 순자산 추이: 늘면 초록, 줄면 빨강
+PIE_COLORS = ["#6C4CF1", "#E0A438", "#3E7BFA", "#FF4D6D", "#8B6EF5", "#C77DFF", "#16C79A", "#B4B8E0"]
 
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700;900&family=Noto+Sans+KR:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Gothic+A1:wght@400;500;700;800;900&family=IBM+Plex+Mono:wght@500;600;700&display=swap');
 
 :root {
-    --paper: #F3F6EF; --paper-2: #FFFDF8; --ink: #1C2B24; --ink-soft: #5B6B60;
-    --line: #DCE6D8; --brand: #0E7C5A; --brand-deep: #0A5A40; --brand-soft: #E4F1EA;
-    --gold: #A9791F; --gold-soft: #F6EBD3; --coral: #B8442F; --coral-soft: #F8E7E2;
-    --navy: #2F3F5C; --navy-soft: #E6EAF2;
+    --paper: #F3F2FF; --paper-2: #FFFFFF; --ink: #15162E; --ink-soft: #6B6C8A;
+    --line: #E7E5F5; --brand: #6C4CF1; --brand-deep: #4B32C3; --brand-soft: #EFEAFE;
+    --gold: #F5A524; --gold-soft: #FFF4E0; --coral: #FF4D6D; --coral-soft: #FFE3E9;
+    --navy: #2A3363; --navy-soft: #E8EEFF;
 }
 
 .stApp {
     background:
-        linear-gradient(0deg, rgba(14,124,90,0.05) 1px, transparent 1px) 0 0/100% 27px,
+        linear-gradient(0deg, rgba(108,76,241,0.06) 1px, transparent 1px) 0 0/100% 27px,
         var(--paper);
 }
-h1, h2, h3, h4 { font-family: 'Noto Serif KR', serif !important; color: var(--ink) !important; letter-spacing: .2px; }
+h1, h2, h3, h4 { font-family: 'Black Han Sans', sans-serif !important; color: var(--ink) !important; letter-spacing: .2px; }
 .stMarkdown, .stMarkdown p, .stMarkdown li, label, .stCaption, p, span, div[data-testid="stText"] {
-    color: var(--ink); font-family: 'Noto Sans KR', sans-serif;
+    color: var(--ink); font-family: 'Gothic A1','Noto Sans KR', sans-serif;
 }
 .stApp small, .stCaption, [data-testid="stCaptionContainer"] { color: var(--ink-soft) !important; }
 [data-testid="stSidebar"] { background: var(--paper-2); border-right: 1px solid var(--line); }
 hr { border-color: var(--line) !important; }
 
-/* 상단 통장 표지 (hero) */
+/* 상단 레벨업 HUD (hero) */
 .ml-hero {
     position: relative; overflow: hidden;
-    background: linear-gradient(155deg, var(--brand-deep) 0%, #0D3F2E 60%, #0A2E22 100%);
-    border-radius: 20px; padding: 26px 30px; margin-bottom: 14px;
-    box-shadow: 0 16px 32px -16px rgba(10,58,42,0.55);
+    background: linear-gradient(155deg, var(--brand-deep) 0%, #1C1140 62%, #120B2E 100%);
+    border-radius: 26px; padding: 28px 32px; margin-bottom: 14px;
+    box-shadow: 0 20px 40px -18px rgba(75,50,195,0.5);
 }
 .ml-hero::before {
-    content: ""; position: absolute; inset: 0;
-    background: repeating-linear-gradient(115deg, rgba(255,255,255,0.05) 0 2px, transparent 2px 22px);
-    pointer-events: none;
+    content: ""; position: absolute; width: 260px; height: 260px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(139,110,245,0.55) 0%, rgba(139,110,245,0) 70%);
+    top: -110px; right: -60px; pointer-events: none;
 }
 .ml-hero::after {
-    content: ""; position: absolute; inset: 9px; border-radius: 13px;
-    border: 1px dashed rgba(244,241,228,0.28); pointer-events: none;
+    content: ""; position: absolute; width: 200px; height: 200px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(245,165,36,0.35) 0%, rgba(245,165,36,0) 70%);
+    bottom: -90px; left: -40px; pointer-events: none;
 }
 .ml-hero .eyebrow {
     position: relative; font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
-    letter-spacing: 2px; color: #C9A24B; text-transform: uppercase; margin-bottom: 6px;
+    letter-spacing: 3px; color: #FFC94D; text-transform: uppercase; margin-bottom: 6px;
+    display: inline-flex; align-items: center; gap: 6px;
 }
-.ml-hero h1 { position: relative; margin: 0; font-size: 1.85rem; color: #F5F1E4 !important; font-weight: 900; }
-.ml-hero p  { position: relative; margin: 6px 0 0 0; color: rgba(245,241,228,0.72); font-size: 0.92rem; }
+.ml-hero h1 { position: relative; margin: 0; font-size: 2rem; color: #F4F2FF !important; font-weight: 900; letter-spacing: .5px; }
+.ml-hero p  { position: relative; margin: 6px 0 0 0; color: rgba(240,238,255,0.78); font-size: 0.93rem; font-weight: 500; }
 
 /* 뉴스 티커 */
 .ticker-wrap {
@@ -139,12 +143,12 @@ hr { border-color: var(--line) !important; }
 /* 카드형 metric */
 div[data-testid="stMetric"] {
     background: var(--paper-2); border: 1px solid var(--line); border-radius: 14px;
-    padding: 14px 16px; box-shadow: 0 1px 2px rgba(28,43,36,0.04);
+    padding: 14px 16px; box-shadow: 0 1px 2px rgba(21,22,46,0.05);
 }
 div[data-testid="stMetricLabel"] { color: var(--ink-soft) !important; }
 div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'IBM Plex Mono', monospace !important; }
 
-/* 자산 카드 (원장 스타일) */
+/* 자산 카드 */
 .asset-card {
     background: var(--paper-2); border: 1px solid var(--line); border-radius: 12px;
     padding: 12px 14px; margin-bottom: 6px; transition: border-color .2s, transform .15s;
@@ -161,7 +165,7 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'I
 .news-item .n-time { font-size: 0.72rem; color: var(--ink-soft); font-family: 'IBM Plex Mono', monospace; }
 .news-item .n-text { font-size: 0.85rem; color: var(--ink); }
 
-/* 호가창 (원장 테이블) */
+/* 호가창 */
 .ob-wrap { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--paper-2); }
 .ob-row { position: relative; display: flex; justify-content: space-between; padding: 5px 12px; font-size: 0.8rem;
     font-family: 'IBM Plex Mono', monospace; overflow: hidden; }
@@ -170,27 +174,27 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'I
 .ob-row span { position: relative; z-index: 1; }
 .ob-cur { text-align: center; padding: 7px; background: var(--gold-soft); font-weight: 700; color: var(--gold);
     font-family: 'IBM Plex Mono', monospace; font-size: 0.86rem;
-    border-top: 1px dashed #D8C08A; border-bottom: 1px dashed #D8C08A; letter-spacing: .3px; }
+    border-top: 1px dashed #F7CE85; border-bottom: 1px dashed #F7CE85; letter-spacing: .3px; }
 .ob-caption { font-size: 0.7rem; color: var(--ink-soft); text-align: center; padding: 4px 0 0 0; }
 
-/* ── 뱃지: 도장(스탬프) ── */
+/* ── 뱃지: 게임 achievement 배지 ── */
 .stamp-cell { text-align: center; padding: 10px 6px 14px 6px; margin-bottom: 6px; }
 .stamp-circle {
-    width: 62px; height: 62px; border-radius: 50%; margin: 0 auto 8px auto; position: relative;
+    width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 8px auto; position: relative;
     display: flex; align-items: center; justify-content: center;
-    border: 2.5px solid var(--line); background: var(--paper-2);
+    border: 2px solid var(--line); background: var(--paper-2); transition: transform .15s ease;
 }
-.stamp-circle::after {
-    content: ""; position: absolute; inset: 5px; border-radius: 50%; border: 1px dashed var(--line);
+.stamp-circle.earned {
+    border: 2px solid var(--brand);
+    background: linear-gradient(155deg, var(--brand-soft), var(--paper-2));
+    box-shadow: 0 0 0 4px rgba(108,76,241,0.14), 0 6px 14px -6px rgba(75,50,195,0.5);
 }
-.stamp-circle.earned { border-color: var(--brand); background: var(--brand-soft);
-    box-shadow: 0 2px 0 rgba(14,124,90,0.18); }
-.stamp-circle.earned::after { border-color: rgba(14,124,90,0.4); }
-.stamp-circle.locked { opacity: 0.42; filter: grayscale(1); }
-.stamp-icon { font-size: 1.55rem; position: relative; }
-.stamp-name { font-family: 'Noto Serif KR', serif; font-weight: 700; font-size: 0.78rem; color: var(--ink); }
+.stamp-circle.earned:hover { transform: translateY(-2px) scale(1.04); }
+.stamp-circle.locked { opacity: 0.4; filter: grayscale(1); }
+.stamp-icon { font-size: 1.6rem; position: relative; }
+.stamp-name { font-family: 'Black Han Sans', sans-serif; font-weight: 700; font-size: 0.78rem; color: var(--ink); }
 .stamp-desc { font-size: 0.66rem; color: var(--ink-soft); margin-top: 2px; min-height: 28px; }
-.stamp-xp { font-family: 'IBM Plex Mono', monospace; font-size: 0.63rem; color: var(--gold); margin-top: 3px; }
+.stamp-xp { font-family: 'IBM Plex Mono', monospace; font-size: 0.63rem; font-weight: 700; color: var(--gold); margin-top: 3px; }
 
 /* 레벨 배지 */
 .level-badge { display:inline-flex; align-items:center; gap:8px; background: var(--paper-2); border:1px solid var(--gold);
@@ -206,11 +210,11 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'I
     color: white !important; font-weight: 700 !important; box-shadow: 0 3px 0 var(--brand-deep) !important;
 }
 
-/* 지출 카드 (원장 줄 스타일) */
+/* 지출 카드 */
 .exp-card {
     display:flex; align-items:center; gap:12px;
     background: var(--paper-2); border: 1px solid var(--line); border-left: 4px solid var(--accent, #7C8CFF);
-    border-radius: 12px; padding: 10px 14px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(28,43,36,0.04);
+    border-radius: 12px; padding: 10px 14px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(21,22,46,0.05);
 }
 .exp-card .exp-icon { font-size: 1.4rem; }
 .exp-card .exp-main { flex: 1; }
@@ -224,25 +228,25 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'I
     background: linear-gradient(135deg, var(--brand-soft), var(--paper-2));
     border: 1px solid var(--brand); border-radius: 18px; padding: 20px 22px; margin-bottom: 12px;
 }
-.goal-hero .g-name { font-family: 'Noto Serif KR', serif; font-size: 1.15rem; font-weight: 800; color: var(--brand-deep); }
+.goal-hero .g-name { font-family: 'Black Han Sans', sans-serif; font-size: 1.15rem; font-weight: 800; color: var(--brand-deep); }
 .goal-hero .g-sub { font-size: 0.82rem; color: var(--ink-soft); margin-top: 3px; font-family: 'IBM Plex Mono', monospace; }
 
 .sv-card {
     background: var(--paper-2); border: 1px solid var(--line); border-radius: 16px;
-    padding: 18px 20px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(28,43,36,0.05);
+    padding: 18px 20px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(21,22,46,0.06);
 }
-.sv-card .sv-title { font-family: 'Noto Serif KR', serif; font-size: 1.02rem; font-weight: 800; color: var(--ink); }
+.sv-card .sv-title { font-family: 'Black Han Sans', sans-serif; font-size: 1.02rem; font-weight: 800; color: var(--ink); }
 .sv-card .sv-sub { font-size: 0.75rem; color: var(--ink-soft); margin-top: 3px; margin-bottom: 10px; font-family:'IBM Plex Mono',monospace; }
-.sv-chip { display:inline-block; font-size: 0.68rem; padding: 2px 9px; border-radius: 999px; margin-left: 6px; font-family:'Noto Sans KR'; }
+.sv-chip { display:inline-block; font-size: 0.68rem; padding: 2px 9px; border-radius: 999px; margin-left: 6px; font-family:'Gothic A1','Noto Sans KR'; }
 .sv-chip.done { background: var(--brand-soft); color: var(--brand-deep); border: 1px solid var(--brand); }
 .sv-chip.live { background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold); }
 
 /* 쫓아가는 성장 진행 바 */
 .chase-wrap { margin: 10px 0 4px 0; }
-.chase-track { position: relative; height: 18px; background: #EAF0E6; border-radius: 999px;
+.chase-track { position: relative; height: 18px; background: #ECEAFB; border-radius: 999px;
     border: 1px solid var(--line); overflow: visible; }
-.chase-track.time { background-color: #EDF1F7;
-    background-image: repeating-linear-gradient(90deg, transparent 0 6px, rgba(47,63,92,0.14) 6px 9px); }
+.chase-track.time { background-color: #EEF1FF;
+    background-image: repeating-linear-gradient(90deg, transparent 0 6px, rgba(62,123,250,0.16) 6px 9px); }
 .chase-fill { position: absolute; left:0; top:0; bottom:0; border-radius: 999px; transition: width .7s ease; }
 .chase-runner { position: absolute; top: 50%; transform: translateY(-50%); font-size: 1.05rem;
     filter: drop-shadow(0 1px 1px rgba(0,0,0,.25)); transition: left .7s ease; }
@@ -253,56 +257,56 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'I
 .coach-card {
     position: relative; border-radius: 16px; padding: 28px 28px 24px 28px; margin-top: 10px;
     background: var(--paper-2); border: 1px solid var(--line);
-    box-shadow: 0 12px 26px -16px rgba(28,43,36,0.3);
+    box-shadow: 0 12px 26px -16px rgba(21,22,46,0.32);
 }
 .coach-card::before {
     content: "코치의 메모"; position: absolute; top: -12px; left: 26px;
-    background: var(--gold-soft); color: var(--gold); border: 1px solid #D8C08A;
+    background: var(--gold-soft); color: var(--gold); border: 1px solid #F7CE85;
     font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; letter-spacing: 1px;
     padding: 3px 10px; border-radius: 999px; transform: rotate(-2deg);
 }
 .coach-hype {
-    font-family: 'Noto Serif KR', serif; font-weight: 800; font-size: 1.3rem; color: var(--brand-deep);
+    font-family: 'Black Han Sans', sans-serif; font-weight: 800; font-size: 1.3rem; color: var(--brand-deep);
     display: inline-block; border-bottom: 2px dashed var(--gold-soft); padding-bottom: 8px; margin-bottom: 10px;
 }
 .coach-summary { font-size: 1.05rem; font-weight: 700; color: var(--ink); margin-bottom: 10px; }
 .risk-chip { display:inline-block; padding: 3px 12px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; }
 .risk-low { background: var(--brand-soft); color: var(--brand-deep); border: 1px solid var(--brand); }
-.risk-mid { background: var(--gold-soft); color: var(--gold); border: 1px solid #D8C08A; }
+.risk-mid { background: var(--gold-soft); color: var(--gold); border: 1px solid #F7CE85; }
 .risk-high{ background: var(--coral-soft); color: var(--coral); border: 1px solid #D9A99C; }
 
 /* ── 리스크 체험관 ── */
 .rl-banner {
-    background: linear-gradient(135deg, #2A1F1A, #1C1512); border: 1px solid var(--coral);
+    background: linear-gradient(135deg, #3B0A24, #220615); border: 1px solid var(--coral);
     border-radius: 16px; padding: 16px 20px; margin-bottom: 14px;
 }
-.rl-banner b { color: #F5D9C8; }
-.rl-banner span { color: #D9BBA8; font-size: 0.85rem; }
+.rl-banner b { color: #FFD6E0; }
+.rl-banner span { color: #F2B8C6; font-size: 0.85rem; }
 .chat-bubble {
     background: var(--paper-2); border: 1px solid var(--line); border-radius: 4px 16px 16px 16px;
-    padding: 14px 18px; margin: 6px 0 14px 0; box-shadow: 0 2px 6px rgba(28,43,36,0.06); position: relative;
+    padding: 14px 18px; margin: 6px 0 14px 0; box-shadow: 0 2px 6px rgba(21,22,46,0.07); position: relative;
 }
 .chat-bubble .cb-sender { font-family:'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--ink-soft); margin-bottom: 6px; }
 .chat-bubble .cb-sender b { color: var(--ink); }
 .chat-bubble .cb-msg { font-size: 0.95rem; color: var(--ink); line-height: 1.55; }
 .scam-grade { display:inline-block; padding: 6px 16px; border-radius: 999px; font-weight: 800;
-    font-family: 'Noto Serif KR', serif; font-size: 1.05rem; margin-bottom: 6px; }
+    font-family: 'Black Han Sans', sans-serif; font-size: 1.05rem; margin-bottom: 6px; }
 .scam-grade.g-master { background: var(--brand-soft); color: var(--brand-deep); border: 1px solid var(--brand); }
 .scam-grade.g-good    { background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold); }
-.scam-grade.g-warn    { background: #F8E7E2; color: var(--coral); border: 1px solid var(--coral); }
-.scam-grade.g-danger  { background: #F3D4CB; color: #8A2E1C; border: 1px solid #8A2E1C; }
-.liq-banner { background: #F3D4CB; border: 1px solid #8A2E1C; color: #6B2314; border-radius: 12px;
+.scam-grade.g-warn    { background: #FFE3E9; color: var(--coral); border: 1px solid var(--coral); }
+.scam-grade.g-danger  { background: #FFD9E1; color: #B0203D; border: 1px solid #B0203D; }
+.liq-banner { background: #FFD9E1; border: 1px solid #B0203D; color: #7A1130; border-radius: 12px;
     padding: 12px 16px; font-weight: 700; margin: 10px 0; }
 .persona-card { display:flex; align-items:center; gap:16px; background: var(--brand-soft);
     border: 1px solid var(--brand); border-radius: 16px; padding: 16px 20px; margin: 10px 0 18px 0; }
 .persona-card .persona-icon { font-size: 2.1rem; }
-.persona-card .persona-name { font-family:'Noto Serif KR', serif; font-weight: 800; color: var(--brand-deep); font-size: 1.05rem; }
+.persona-card .persona-name { font-family:'Black Han Sans', sans-serif; font-weight: 800; color: var(--brand-deep); font-size: 1.05rem; }
 .persona-card .persona-desc { font-size: 0.82rem; color: var(--ink-soft); margin-top: 2px; }
 
 /* ── 이용 가이드 ── */
 .guide-hero {
-    background: linear-gradient(155deg, var(--brand-deep) 0%, #0D3F2E 60%, #0A2E22 100%); color: #fff;
-    border-radius: 20px; padding: 26px 30px; margin-bottom: 18px; box-shadow: 0 16px 32px -16px rgba(10,58,42,0.55);
+    background: linear-gradient(155deg, var(--brand-deep) 0%, #1C1140 62%, #120B2E 100%); color: #fff;
+    border-radius: 26px; padding: 28px 32px; margin-bottom: 18px; box-shadow: 0 20px 40px -18px rgba(75,50,195,0.5);
 }
 .guide-hero h1 { color: #fff !important; margin: 0 0 6px 0; font-size: 1.5rem; }
 .guide-hero p { margin: 0; opacity: .85; font-size: 0.9rem; }
@@ -312,7 +316,7 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'I
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   UI/UX 강화 패치 — Streamlit 기본 위젯을 "통장/원장" 톤에 맞춰 재단장
+   UI/UX 강화 패치 — Streamlit 기본 위젯을 "레벨업 게임 HUD" 톤에 맞춰 재단장
    (기존 색상 변수·기존 커스텀 클래스는 그대로 재사용, 신규 규칙만 추가)
    ══════════════════════════════════════════════════════════════════ */
 
@@ -326,15 +330,15 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'I
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--brand); }
 
-/* ── 탭 내비게이션: 원장 인덱스 탭처럼 ── */
+/* ── 탭 내비게이션: 게임 메뉴 세그먼트처럼 ── */
 .stTabs [data-baseweb="tab-list"] {
     gap: 4px; background: var(--paper-2); padding: 6px; border-radius: 14px;
-    border: 1px solid var(--line); box-shadow: inset 0 1px 2px rgba(28,43,36,0.04);
+    border: 1px solid var(--line); box-shadow: inset 0 1px 2px rgba(21,22,46,0.05);
     flex-wrap: wrap;
 }
 .stTabs [data-baseweb="tab"] {
     height: auto; padding: 8px 16px; border-radius: 10px; background: transparent;
-    color: var(--ink-soft); font-family: 'Noto Sans KR', sans-serif; font-weight: 600; font-size: 0.88rem;
+    color: var(--ink-soft); font-family: 'Gothic A1','Noto Sans KR', sans-serif; font-weight: 600; font-size: 0.88rem;
     transition: background .15s, color .15s;
 }
 .stTabs [data-baseweb="tab"]:hover { background: var(--brand-soft); color: var(--brand-deep); }
@@ -346,10 +350,10 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'I
 .stTabs [data-baseweb="tab-border"] { display: none; }
 .stTabs [data-baseweb="tab-panel"] { padding-top: 18px; }
 
-/* ── 버튼: 은행 창구 버튼 느낌 ── */
+/* ── 버튼: 앱 액션 버튼 느낌 ── */
 .stButton > button {
     border: 1px solid var(--line) !important; background: var(--paper-2) !important;
-    color: var(--ink) !important; font-weight: 700 !important; font-family: 'Noto Sans KR', sans-serif !important;
+    color: var(--ink) !important; font-weight: 700 !important; font-family: 'Gothic A1','Noto Sans KR', sans-serif !important;
     transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; padding: 0.5rem 1.1rem !important;
 }
 .stButton > button:hover { border-color: var(--brand) !important; color: var(--brand-deep) !important; transform: translateY(-1px); }
@@ -365,7 +369,7 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'I
 .stDownloadButton > button { border-radius: 10px !important; border: 1px dashed var(--gold) !important;
     background: var(--gold-soft) !important; color: var(--gold) !important; font-weight: 700 !important; }
 
-/* ── 입력 위젯: 통장 기입란처럼 ── */
+/* ── 입력 위젯: 모던 폼 필드 ── */
 div[data-baseweb="input"], div[data-baseweb="select"] > div, div[data-baseweb="textarea"] textarea {
     border-radius: 10px !important; border-color: var(--line) !important; background: var(--paper-2) !important;
 }
@@ -375,7 +379,7 @@ div[data-baseweb="input"]:focus-within, div[data-baseweb="select"]:focus-within 
 .stSlider [data-baseweb="slider"] div[role="slider"] { background: var(--brand) !important; border-color: var(--brand-deep) !important; }
 .stSlider [data-baseweb="slider"] > div > div { background: var(--brand) !important; }
 
-/* ── 라디오/체크박스: 도장 선택지처럼 ── */
+/* ── 라디오/체크박스: 선택 칩처럼 ── */
 div[role="radiogroup"] label, .stCheckbox label { border-radius: 10px !important; }
 div[role="radiogroup"] label:has(input:checked) {
     background: var(--brand-soft); border: 1px solid var(--brand); border-radius: 10px; padding: 2px 8px;
@@ -384,7 +388,7 @@ div[role="radiogroup"] label:has(input:checked) {
 /* ── 폼 컨테이너 & 보더 컨테이너 ── */
 div[data-testid="stForm"] {
     background: var(--paper-2); border: 1px solid var(--line) !important; border-radius: 16px !important;
-    padding: 18px 20px !important; box-shadow: 0 4px 14px -10px rgba(28,43,36,0.25);
+    padding: 18px 20px !important; box-shadow: 0 4px 14px -10px rgba(21,22,46,0.28);
 }
 div[data-testid="stVerticalBlockBorderWrapper"] > div[data-testid="stVerticalBlock"] {
     border-radius: 16px !important;
@@ -395,20 +399,20 @@ div[data-testid="stVerticalBlockBorderWrapper"] > div[data-testid="stVerticalBlo
 }
 [data-testid="stExpander"] summary { font-weight: 700 !important; color: var(--ink) !important; }
 
-/* ── 진행률 바: 저금통 채워지는 느낌 ── */
+/* ── 진행률 바: XP 게이지 채워지는 느낌 ── */
 div[data-testid="stProgress"] > div > div { background: var(--line) !important; border-radius: 999px !important; }
 div[data-testid="stProgress"] > div > div > div {
-    background: linear-gradient(90deg, var(--brand), #3FA179) !important; border-radius: 999px !important;
+    background: linear-gradient(90deg, var(--brand), #8F7BF5) !important; border-radius: 999px !important;
 }
 
-/* ── 알림 박스: 종이 메모지 톤 ── */
+/* ── 알림 박스 ── */
 div[data-testid="stAlert"] { border-radius: 12px !important; border-width: 1px !important; font-size: 0.9rem; }
 div[data-testid="stNotificationContentInfo"] { color: var(--navy) !important; }
 div[data-testid="stNotificationContentSuccess"] { color: var(--brand-deep) !important; }
-div[data-testid="stNotificationContentWarning"] { color: #8A5A1F !important; }
+div[data-testid="stNotificationContentWarning"] { color: #B36B00 !important; }
 div[data-testid="stNotificationContentError"] { color: var(--coral) !important; }
 
-/* ── 사이드바: 창구 데스크 톤 ── */
+/* ── 사이드바 ── */
 [data-testid="stSidebar"] .stButton > button { width: 100%; }
 [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 { font-size: 1.05rem !important; }
 
@@ -431,7 +435,7 @@ def price_chart(asset_id, market):
         hist = hist * 2
     up = hist[-1] >= hist[0]
     line_color = UP_COLOR if up else DOWN_COLOR
-    fill_color = "rgba(184,68,47,0.08)" if up else "rgba(47,93,138,0.08)"
+    fill_color = "rgba(255,77,109,0.10)" if up else "rgba(62,123,250,0.10)"
     fig = go.Figure(go.Scatter(
         x=list(range(len(hist))), y=hist, mode="lines",
         line=dict(color=line_color, width=2.2),
@@ -453,7 +457,7 @@ def net_worth_chart(user):
     fig.add_trace(go.Scatter(y=reals, mode="lines+markers", name="실제 자금",
                               line=dict(color=GAIN_COLOR, width=2.5), marker=dict(size=4)))
     fig.add_trace(go.Scatter(y=mocks, mode="lines+markers", name="모의투자",
-                              line=dict(color="#2F5D8A", width=2.5, dash="dot"), marker=dict(size=4)))
+                              line=dict(color="#3E7BFA", width=2.5, dash="dot"), marker=dict(size=4)))
     fig.update_layout(**PLOTLY_DARK, height=200, showlegend=True, legend=dict(font=dict(size=10)))
     fig.update_xaxes(showgrid=False, showticklabels=False)
     fig.update_yaxes(showgrid=False)
@@ -476,7 +480,7 @@ def mock_portfolio_donut(user, market):
     fig = go.Figure(go.Pie(
         labels=labels, values=values, hole=0.62,
         marker=dict(colors=PIE_COLORS),
-        textinfo="label+percent", textfont=dict(size=11, color="#1C2B24"),
+        textinfo="label+percent", textfont=dict(size=11, color="#15162E"),
     ))
     fig.update_layout(**PLOTLY_DARK, height=280, showlegend=False)
     return fig
@@ -497,7 +501,7 @@ def real_asset_donut(user):
     fig = go.Figure(go.Pie(
         labels=labels, values=values, hole=0.62,
         marker=dict(colors=PIE_COLORS),
-        textinfo="label+percent", textfont=dict(size=11, color="#1C2B24"),
+        textinfo="label+percent", textfont=dict(size=11, color="#15162E"),
     ))
     fig.update_layout(**PLOTLY_DARK, height=280, showlegend=False)
     return fig
@@ -506,15 +510,15 @@ def real_asset_donut(user):
 def render_news_ticker(market):
     items = market.get("news", [])
     if not items:
-        html = "<div class='ticker-item'>📡 시장 뉴스를 수신 대기 중입니다...</div>"
+        ticker_html = "<div class='ticker-item'>📡 시장 뉴스를 수신 대기 중입니다...</div>"
     else:
-        html = "".join(
+        ticker_html = "".join(
             f"<span class='ticker-item'>📰 <b>{ASSET_BY_ID.get(n['asset'],{}).get('name', n['asset'])}</b> · {n['text']}</span>"
             for n in items[:8]
         )
     st.markdown(f"""<div class="ticker-wrap">
         <div class="ticker-tag">NEWS</div>
-        <div class="ticker-scroll"><div class="ticker-inner">{html}{html}</div></div>
+        <div class="ticker-scroll"><div class="ticker-inner">{ticker_html}{ticker_html}</div></div>
         </div>""", unsafe_allow_html=True)
 
 
@@ -528,11 +532,11 @@ def chase_bar(pct, left_label, right_label, theme="growth"):
         left_pos = "calc(100% - 20px)"
 
     if theme == "time":
-        color_from, color_to = "#4C6690", "#2F3F5C"
+        color_from, color_to = "#5D8CFF", "#2A3363"
         runner = "🏁" if pct >= 1.0 else "🚶"
         track_cls = "chase-track time"
     else:
-        color_from, color_to = "#3FA179", "#0A5A40"
+        color_from, color_to = "#8F7BF5", "#4B32C3"
         if pct >= 1.0:
             runner = "🌳"
         elif pct >= 0.6:
@@ -871,11 +875,11 @@ def render_expense(user):
         for t in tx[:15]:
             is_income = t.get("kind") == "income"
             if is_income:
-                c = INCOME_CAT_BY_ID.get(t.get("category"), {"icon": "💵", "name": "수입", "color": "#0E7C5A"})
-                sign, accent = "+", "#0E7C5A"
+                c = INCOME_CAT_BY_ID.get(t.get("category"), {"icon": "💵", "name": "수입", "color": "#6C4CF1"})
+                sign, accent = "+", "#6C4CF1"
             else:
                 c = CAT_BY_ID[t["category"]]
-                sign, accent = "-", c.get("color", "#B8442F")
+                sign, accent = "-", c.get("color", "#FF4D6D")
             row_l, row_r = st.columns([6, 1])
             with row_l:
                 st.markdown(f"""
@@ -883,7 +887,7 @@ def render_expense(user):
                         <div class="exp-icon">{c['icon']}</div>
                         <div class="exp-main">
                             <div class="exp-cat">{c['name']}</div>
-                            <div class="exp-memo">{t.get('memo') or '메모 없음'}</div>
+                            <div class="exp-memo">{html.escape(t.get('memo') or '메모 없음')}</div>
                             <div class="exp-time">{relative_time(t['ts'])}</div>
                         </div>
                         <div class="exp-amt">{sign}{format_korean_money(t['amount'])}</div>
@@ -932,7 +936,7 @@ def render_goals(user):
     g = goal_progress(user)
     if g:
         st.markdown(f"""<div class="goal-hero">
-            <div class="g-name">🏁 {g['name']}</div>
+            <div class="g-name">🏁 {html.escape(g['name'])}</div>
             <div class="g-sub">{format_korean_money(g['current'])} / {format_korean_money(g['target'])}</div>
             </div>""", unsafe_allow_html=True)
         chase_bar(g["pct"], f"{g['pct']*100:.1f}% 달성", format_korean_money(g["target"] - g["current"]) + " 남음"
@@ -1016,7 +1020,7 @@ def render_savings(user):
             else:
                 chips += '<span class="sv-chip live">⏳ 진행중</span>'
             st.markdown(f"""<div class="sv-card">
-                <div class="sv-title">{s.get('icon','🏦')} {s['name']} {chips}</div>
+                <div class="sv-title">{s.get('icon','🏦')} {html.escape(s['name'])} {chips}</div>
                 <div class="sv-sub">시작일 {s['start']}{' · 만기 ' + s['end'] if s.get('end') else ' · 기간 없음(자유적립)'}</div>
                 </div>""", unsafe_allow_html=True)
 
@@ -1054,7 +1058,7 @@ def render_savings(user):
 
 
 # ── 뱃지 / 레벨 ───────────────────────────────────────────────────────────
-def render_badges(user, market):
+def render_badges(user, market, display_name: str = "회원"):
     level, pct, next_ceil = xp_progress(user["xp"])
     st.subheader(f"🏅 레벨 {level}")
     st.progress(pct, text=f"XP {user['xp']} / {next_ceil}")
@@ -1069,20 +1073,19 @@ def render_badges(user, market):
 
     with st.expander("📇 내 금융 리포트 카드 다운로드"):
         st.caption("레벨·뱃지·재무 건강 점수·리스크 체험관 성적을 한 장으로 모은 요약 카드예요. 공모전 제출용 캡처나 공유에 써보세요.")
-        html = build_report_card_html(user, market)
-        st.components.v1.html(html, height=560, scrolling=True)
-        st.download_button("⬇️ HTML로 다운로드", data=html, file_name=f"{user.get('name','user')}_머니레벨업_리포트카드.html",
+        html_report = build_report_card_html(user, market, display_name)
+        st.components.v1.html(html_report, height=560, scrolling=True)
+        st.download_button("⬇️ HTML로 다운로드", data=html_report,
+                            file_name=f"{display_name or 'user'}_머니레벨업_리포트카드.html",
                             mime="text/html")
 
     cols = st.columns(6)
-    ROTATIONS = [-5, 3, -3, 6, -6, 2]
     for i, b in enumerate(BADGES):
         earned = b["id"] in user["badges"]
         with cols[i % 6]:
             cls = "earned" if earned else "locked"
-            rot = ROTATIONS[i % len(ROTATIONS)]
             st.markdown(f"""<div class="stamp-cell">
-                <div class="stamp-circle {cls}" style="transform: rotate({rot}deg);">
+                <div class="stamp-circle {cls}">
                     <span class="stamp-icon">{b['icon'] if earned else '🔒'}</span>
                 </div>
                 <div class="stamp-name">{b['name']}</div>
@@ -1106,7 +1109,7 @@ def render_onboarding(user):
             alloc = rp.get("recommended_allocation", {})
             if alloc:
                 fig = go.Figure(go.Pie(labels=list(alloc.keys()), values=list(alloc.values()), hole=0.55,
-                                        marker=dict(colors=["#4C8DFF", "#66BB6A", "#FFB74D"])))
+                                        marker=dict(colors=["#8B6EF5", "#16C79A", "#F5A524"])))
                 fig.update_layout(**PLOTLY_DARK, height=260, showlegend=True)
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
             if rp.get("caution"):
@@ -1357,7 +1360,7 @@ def render_leverage_lab(user):
     if result:
         fig = go.Figure()
         fig.add_trace(go.Scatter(y=result["equity_base"], mode="lines", name="레버리지 없음 (1배)",
-                                  line=dict(color="#2F5D8A", width=2, dash="dot")))
+                                  line=dict(color="#3E7BFA", width=2, dash="dot")))
         fig.add_trace(go.Scatter(y=result["equity_lev"], mode="lines", name=f"{result['leverage']}배 레버리지",
                                   line=dict(color=DOWN_COLOR if result["liquidated"] else UP_COLOR, width=2.6)))
         fig.update_layout(**PLOTLY_DARK, height=280, showlegend=True, legend=dict(font=dict(size=11)))
@@ -1389,9 +1392,9 @@ def render_crisis_lab(user):
 
     path = get_crisis_path(scenario["id"])
     fig = go.Figure(go.Scatter(y=path, mode="lines", line=dict(color=DOWN_COLOR, width=2.2),
-                                fill="tozeroy", fillcolor="rgba(184,68,47,0.08)"))
+                                fill="tozeroy", fillcolor="rgba(255,77,109,0.10)"))
     for dday in scenario["decision_days"]:
-        fig.add_vline(x=dday, line_width=1, line_dash="dash", line_color="#A9791F")
+        fig.add_vline(x=dday, line_width=1, line_dash="dash", line_color="#F5A524")
     fig.update_layout(**PLOTLY_DARK, height=240, showlegend=False)
     fig.update_xaxes(title="경과일", showgrid=False)
     fig.update_yaxes(title="지수(시작=100)", showgrid=False)
@@ -1423,7 +1426,7 @@ def render_crisis_lab(user):
         fig2 = go.Figure()
         baseline_curve = [(1_000_000 / path[0]) * v for v in path]
         fig2.add_trace(go.Scatter(y=baseline_curve, mode="lines", name="계속 보유(Buy & Hold)",
-                                   line=dict(color="#2F5D8A", width=2, dash="dot")))
+                                   line=dict(color="#3E7BFA", width=2, dash="dot")))
         fig2.add_trace(go.Scatter(y=result["user_curve"], mode="lines", name="내 선택대로",
                                    line=dict(color=GAIN_COLOR if result["final_value"] >= result["principal"] else LOSS_COLOR, width=2.6)))
         fig2.update_layout(**PLOTLY_DARK, height=260, showlegend=True, legend=dict(font=dict(size=11)))
@@ -1484,9 +1487,9 @@ def render_retirement(user, age: int):
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(y=result["curve"], mode="lines", name="예상 자산 곡선",
-                              line=dict(color="#0E7C5A", width=2.6), fill="tozeroy", fillcolor="rgba(14,124,90,0.08)"))
-    fig.add_hline(y=result["needed_corpus"], line_dash="dash", line_color="#B8442F",
-                  annotation_text="목표 노후자금", annotation_font_color="#B8442F")
+                              line=dict(color="#6C4CF1", width=2.6), fill="tozeroy", fillcolor="rgba(108,76,241,0.10)"))
+    fig.add_hline(y=result["needed_corpus"], line_dash="dash", line_color="#FF4D6D",
+                  annotation_text="목표 노후자금", annotation_font_color="#FF4D6D")
     fig.update_layout(**PLOTLY_DARK, height=300, showlegend=False)
     fig.update_xaxes(title="개월 수", showgrid=False)
     fig.update_yaxes(title="자산(원)", showgrid=False)
@@ -1510,7 +1513,7 @@ def render_retirement(user, age: int):
 
 
 # ── 📇 금융 리포트 카드 (다운로드/공유용) ──────────────────────────────────
-def build_report_card_html(user, market) -> str:
+def build_report_card_html(user, market, display_name: str = "회원") -> str:
     level, pct, next_ceil = xp_progress(user["xp"])
     hs = financial_health_score(user, market)
     persona = spending_persona(user)
@@ -1519,33 +1522,33 @@ def build_report_card_html(user, market) -> str:
     nw = round(real_net_worth(user) + mock_total_value(user, market))
     badge_count = len(user.get("badges", []))
     today = date.today().strftime("%Y.%m.%d")
-    name = user.get("name", "회원")
+    name = html.escape(display_name or "회원")
 
     return f"""<!DOCTYPE html>
 <html lang="ko"><head><meta charset="utf-8">
 <title>{name}님의 머니레벨업 리포트 카드</title>
 <style>
-  body {{ margin:0; padding:40px; background:#F3F6EF; font-family:'Noto Sans KR',sans-serif; }}
-  .card {{ max-width:640px; margin:0 auto; background:#FFFDF8; border:1px solid #DCE6D8; border-radius:22px;
-           padding:34px 38px; box-shadow:0 18px 40px -20px rgba(10,58,42,0.35); }}
-  .hd {{ background:linear-gradient(155deg,#0A5A40,#0D3F2E 60%,#0A2E22); color:#fff; border-radius:16px;
+  body {{ margin:0; padding:40px; background:#F3F2FF; font-family:'Gothic A1','Noto Sans KR',sans-serif; }}
+  .card {{ max-width:640px; margin:0 auto; background:#FFFFFF; border:1px solid #E7E5F5; border-radius:22px;
+           padding:34px 38px; box-shadow:0 18px 40px -20px rgba(75,50,195,0.30); }}
+  .hd {{ background:linear-gradient(155deg,#4B32C3,#1C1140 60%,#120B2E); color:#fff; border-radius:16px;
          padding:22px 26px; margin-bottom:22px; }}
-  .hd h1 {{ font-family:'Noto Serif KR',serif; margin:0 0 4px 0; font-size:1.5rem; }}
+  .hd h1 {{ font-family:'Black Han Sans',sans-serif; margin:0 0 4px 0; font-size:1.5rem; }}
   .hd p {{ margin:0; opacity:.8; font-size:.85rem; }}
   .row {{ display:flex; gap:14px; margin-bottom:16px; flex-wrap:wrap; }}
-  .stat {{ flex:1; min-width:130px; background:#F3F6EF; border:1px solid #DCE6D8; border-radius:14px; padding:14px 16px; }}
-  .stat .k {{ font-size:.72rem; color:#5B6B60; margin-bottom:4px; }}
-  .stat .v {{ font-family:'Noto Serif KR',serif; font-size:1.25rem; color:#1C2B24; font-weight:700; }}
+  .stat {{ flex:1; min-width:130px; background:#F3F2FF; border:1px solid #E7E5F5; border-radius:14px; padding:14px 16px; }}
+  .stat .k {{ font-size:.72rem; color:#6B6C8A; margin-bottom:4px; }}
+  .stat .v {{ font-family:'Black Han Sans',sans-serif; font-size:1.25rem; color:#15162E; font-weight:700; }}
   .section {{ margin-top:22px; }}
-  .section h2 {{ font-family:'Noto Serif KR',serif; font-size:1.05rem; color:#1C2B24; border-bottom:2px solid #0E7C5A;
+  .section h2 {{ font-family:'Black Han Sans',sans-serif; font-size:1.05rem; color:#15162E; border-bottom:2px solid #6C4CF1;
                  display:inline-block; padding-bottom:3px; margin-bottom:12px; }}
-  .persona {{ display:flex; align-items:center; gap:14px; background:#E4F1EA; border:1px solid #0E7C5A;
+  .persona {{ display:flex; align-items:center; gap:14px; background:#EFEAFE; border:1px solid #6C4CF1;
               border-radius:14px; padding:14px 18px; }}
   .persona .icon {{ font-size:2rem; }}
-  .persona .name {{ font-weight:800; color:#0A5A40; font-size:1.05rem; }}
-  .persona .desc {{ font-size:.82rem; color:#5B6B60; margin-top:2px; }}
-  .footer {{ margin-top:26px; text-align:center; font-size:.72rem; color:#5B6B60; }}
-  .grade {{ display:inline-block; padding:4px 14px; border-radius:999px; font-weight:800; background:#F6EBD3; color:#A9791F; border:1px solid #A9791F; }}
+  .persona .name {{ font-weight:800; color:#4B32C3; font-size:1.05rem; }}
+  .persona .desc {{ font-size:.82rem; color:#6B6C8A; margin-top:2px; }}
+  .footer {{ margin-top:26px; text-align:center; font-size:.72rem; color:#6B6C8A; }}
+  .grade {{ display:inline-block; padding:4px 14px; border-radius:999px; font-weight:800; background:#FFF4E0; color:#F5A524; border:1px solid #F5A524; }}
 </style></head>
 <body>
   <div class="card">
@@ -1636,7 +1639,7 @@ def _make_uid(name: str, birth_year: int) -> str:
 
 def render_signup_gate():
     st.markdown("""<div class="ml-hero">
-        <div class="eyebrow">MONEY PASSBOOK · Lv.1 부터 시작</div>
+        <div class="eyebrow">⚡ LEVEL UP JOURNEY · Lv.1 부터 시작</div>
         <h1>💡 머니레벨업</h1>
         <p>사회초년생을 위한 AI 소비·투자 코칭 모의 서비스 — 실제 돈 없이, 실패해도 되는 연습장</p>
         </div>""", unsafe_allow_html=True)
@@ -1662,12 +1665,14 @@ def render_signup_gate():
     with st.container(border=True):
         st.subheader("시작하기 전에")
         if db_available():
-            st.caption("계정/비밀번호 없이, 이름과 출생연도만 입력하면 돼요. 같은 이름+출생연도로 다시 오시면 이어서 할 수 있어요.")
+            st.caption("계정 가입 없이, 이름·출생연도·4자리 PIN만 입력하면 돼요. 같은 이름+출생연도로 다시 오실 땐 처음 정한 PIN을 입력하면 이어서 할 수 있어요. (PIN은 동명이인끼리 데이터가 섞이지 않도록 확인하는 용도예요)")
         else:
             st.caption("⚠️ 현재 저장소(DB)가 연결되지 않아 이번 방문 동안만 데이터가 유지돼요.")
         with st.form("signup_form"):
             name = st.text_input("이름 (또는 닉네임)", placeholder="예: 김효민")
             birth_year = st.number_input("출생연도", min_value=1950, max_value=2015, value=2000, step=1)
+            pin = st.text_input("4자리 PIN", placeholder="숫자 4자리, 예: 1234", max_chars=4, type="password",
+                                  help="비밀번호 대신 쓰는 4자리 숫자예요. 다음에 같은 이름+출생연도로 올 때 이 PIN을 똑같이 입력해야 내 기록을 이어서 볼 수 있어요.")
             st.markdown("**💰 이미 갖고 있는 돈이 있나요?** (처음 한 번만 입력하면 돼요, 나중에 사이드바에서 수정 가능)")
             ic1, ic2 = st.columns(2)
             with ic1:
@@ -1681,12 +1686,19 @@ def render_signup_gate():
             if submitted:
                 if not name.strip():
                     st.error("이름을 입력해주세요.")
+                elif not (pin.isdigit() and len(pin) == 4):
+                    st.error("PIN은 숫자 4자리로 입력해주세요.")
                 else:
                     uid = _make_uid(name, int(birth_year))
-                    st.session_state.profile = {"name": name.strip(), "birth_year": int(birth_year), "uid": uid}
-                    st.session_state["_pending_initial_cash"] = int(initial_cash)
-                    st.session_state["_pending_initial_savings"] = int(initial_savings)
-                    st.rerun()
+                    ok, err = verify_pin(uid, pin)
+                    if not ok:
+                        st.error(err)
+                    else:
+                        st.session_state.profile = {"name": name.strip(), "birth_year": int(birth_year), "uid": uid}
+                        st.session_state["_pending_initial_cash"] = int(initial_cash)
+                        st.session_state["_pending_initial_savings"] = int(initial_savings)
+                        st.session_state["_pending_pin"] = pin
+                        st.rerun()
 
 
 # ── 메인 ──────────────────────────────────────────────────────────────────
@@ -1703,7 +1715,8 @@ def main():
     uid = profile["uid"]
     user = get_user(uid,
                      initial_real_cash=st.session_state.pop("_pending_initial_cash", None),
-                     initial_savings=st.session_state.pop("_pending_initial_savings", 0))
+                     initial_savings=st.session_state.pop("_pending_initial_savings", 0),
+                     pin=st.session_state.pop("_pending_pin", None))
     market = tick_market()
     record_net_worth_point(user, market)
     newly = check_habit_badges(user, market) + check_risk_lab_badges(user)
@@ -1762,9 +1775,9 @@ def main():
         st.caption("모의투자는 실제 금전 거래가 없는 연습용 시뮬레이션입니다.")
 
     st.markdown(f"""<div class="ml-hero">
-        <div class="eyebrow">MONEY PASSBOOK · Lv.{get_level(user['xp'])}</div>
+        <div class="eyebrow">⚡ LEVEL UP JOURNEY · Lv.{get_level(user['xp'])}</div>
         <h1>💡 머니레벨업</h1>
-        <p>{profile['name']}님, 오늘도 한 걸음 레벨업 해봐요</p>
+        <p>{html.escape(profile['name'])}님, 오늘도 한 걸음 레벨업 해봐요</p>
         </div>""", unsafe_allow_html=True)
 
     render_news_ticker(market)
@@ -1794,7 +1807,7 @@ def main():
     with tabs[10]:
         render_ai_chat(user, market)
     with tabs[11]:
-        render_badges(user, market)
+        render_badges(user, market, profile['name'])
 
     _persist(user)  # 뱃지/XP/순자산 추이 등 명시적 rerun 없이 바뀐 값도 매 실행마다 저장
 
