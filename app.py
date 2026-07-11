@@ -406,6 +406,62 @@ a, a:visited { color: var(--brand-deep) !important; }
     .ml-hero h1 { font-size: 1.4rem; }
     .stTabs [data-baseweb="tab"] { padding: 7px 10px; font-size: 0.78rem; }
 }
+
+/* ══════════════ 대시보드: 토스 스타일 ══════════════ */
+
+/* 인사 헤더 */
+.db-greet { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom: 14px; gap: 12px; flex-wrap: wrap; }
+.db-greet .db-hello { font-size: 1.28rem; font-weight: 800; color: var(--ink); font-family:'Noto Sans KR',sans-serif; letter-spacing:-.2px; }
+.db-greet .db-sub { font-size: 0.86rem; color: var(--ink-faint); margin-top: 5px; font-weight: 500; }
+
+/* 통계 카드 그리드 (총자산 / 이번달지출 / 재무건강점수) */
+.stat-grid { display:grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.stat-box {
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 18px;
+    padding: 18px 20px; box-shadow: 0 1px 2px rgba(25,31,40,0.04);
+}
+.stat-box .stat-label { font-size: 0.8rem; color: var(--ink-faint); font-weight: 700; margin-bottom: 10px; }
+.stat-box .stat-value { font-family:'Space Grotesk',sans-serif; font-size: 1.55rem; font-weight: 700; color: var(--ink); letter-spacing: -.3px; }
+.stat-box .stat-unit { font-size: 0.85rem; color: var(--ink-faint); font-weight: 500; }
+.stat-box .stat-foot { font-size: 0.74rem; color: var(--ink-faint); margin-top: 8px; font-weight: 500; }
+.stat-box.primary {
+    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-deep) 100%);
+    border: none; box-shadow: 0 12px 26px -14px rgba(49,130,246,0.55);
+}
+.stat-box.primary .stat-label { color: rgba(255,255,255,0.82); }
+.stat-box.primary .stat-value { color: #fff; }
+.stat-box.primary .stat-foot { color: rgba(255,255,255,0.78); }
+@media (max-width: 900px) {
+    .stat-grid { grid-template-columns: 1fr 1fr; }
+    .stat-box.primary { grid-column: 1 / -1; }
+}
+
+/* 카드 안 소제목 */
+.card-head { font-size: 0.95rem; font-weight: 800; color: var(--ink); margin-bottom: 12px; display:flex; align-items:center; gap:6px; }
+
+/* 최근 내역 리스트 */
+.activity-card { display:flex; flex-direction:column; }
+.activity-row { display:flex; align-items:center; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+.activity-row:last-child { border-bottom: none; padding-bottom: 2px; }
+.act-icon { width: 38px; height: 38px; border-radius: 50%; background: var(--paper); display:flex; align-items:center; justify-content:center; font-size: 1.1rem; flex-shrink:0; }
+.act-main { flex: 1; min-width: 0; }
+.act-title { font-size: 0.88rem; font-weight: 700; color: var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.act-sub { font-size: 0.72rem; color: var(--ink-faint); margin-top: 2px; }
+.act-amt { font-family:'Space Grotesk',sans-serif; font-weight: 700; font-size: 0.88rem; white-space:nowrap; }
+.act-amt.neg { color: var(--ink); }
+.act-amt.pos { color: var(--brand-deep); }
+
+/* 하단 미니 뱃지 스트립 */
+.mini-badge-row { display:flex; flex-wrap: wrap; gap: 8px; }
+.mini-badge { display:inline-flex; align-items:center; gap: 6px; background: var(--paper); border: 1px solid var(--line);
+    border-radius: 999px; padding: 7px 13px; font-size: 0.76rem; font-weight: 700; color: var(--ink-soft); }
+.mini-badge .mb-icon { font-size: 0.92rem; }
+
+/* border=True 컨테이너를 카드처럼 */
+div[data-testid="stVerticalBlockBorderWrapper"] > div[data-testid="stVerticalBlock"] {
+    background: var(--paper-2) !important;
+    box-shadow: 0 1px 2px rgba(25,31,40,0.04);
+}
 </style>
 """
 
@@ -486,6 +542,60 @@ def real_asset_donut(user):
     ))
     fig.update_layout(**PLOTLY_DARK, height=280, showlegend=False)
     return fig
+
+
+def combined_asset_donut(user, market):
+    """전체 자산 배분 한눈에 보기 (예/적금 · 모의투자 평가액 · 현금)."""
+    save_amt = total_saving_amount(user)
+    invest_amt = mock_portfolio_value(user, market)
+    cash_amt = user.get("real_cash", 0) + user.get("mock_cash", 0)
+    labels, values = [], []
+    for label, val in [("예금/적금", save_amt), ("주식형(모의투자)", invest_amt), ("현금", cash_amt)]:
+        if val > 0:
+            labels.append(label)
+            values.append(val)
+    if not values:
+        return None
+    fig = go.Figure(go.Pie(
+        labels=labels, values=values, hole=0.62,
+        marker=dict(colors=PIE_COLORS),
+        textinfo="label+percent", textfont=dict(size=11, color="#191F28"),
+    ))
+    fig.update_layout(**PLOTLY_DARK, height=260, showlegend=False)
+    return fig
+
+
+def _tx_row_data(t):
+    """가계부/투자 로그 한 건을 (아이콘, 제목, 부제, 부호있는 금액)으로 변환."""
+    kind = t.get("kind")
+    if kind == "expense":
+        cat = CAT_BY_ID.get(t.get("category"), {})
+        icon = cat.get("icon", "🧾")
+        title = t.get("memo") or cat.get("name", "지출")
+        sub = cat.get("name", "지출")
+        amt = -t.get("amount", 0)
+    elif kind == "income":
+        cat = INCOME_CAT_BY_ID.get(t.get("category"), {})
+        icon = cat.get("icon", "💵")
+        title = t.get("memo") or cat.get("name", "수입")
+        sub = cat.get("name", "수입")
+        amt = t.get("amount", 0)
+    elif kind in ("invest_buy", "invest_sell"):
+        a = ASSET_BY_ID.get(t.get("asset"), {})
+        icon = a.get("icon", "📈")
+        title = f"{a.get('name', '자산')} {'매수' if kind == 'invest_buy' else '매도'}"
+        sub = "모의투자"
+        val = t.get("qty", 0) * t.get("price", 0)
+        amt = -val if kind == "invest_buy" else val
+    elif kind == "savings_open":
+        icon, title, sub, amt = "🏦", t.get("name", "예/적금"), "예적금 가입", -t.get("amount", 0)
+    elif kind == "savings_deposit":
+        icon, title, sub, amt = "💰", t.get("name", "예/적금"), "추가 납입", -t.get("amount", 0)
+    elif kind == "savings_close":
+        icon, title, sub, amt = "🔓", t.get("name", "예/적금"), "해지", t.get("amount", 0)
+    else:
+        icon, title, sub, amt = "•", kind or "활동", "", 0
+    return icon, title, sub, amt
 
 
 def render_news_ticker(market):
@@ -572,79 +682,95 @@ TIPS = [
 ]
 
 
-def render_dashboard(user, market):
+def render_dashboard(user, market, display_name: str = "회원"):
     real_nw = real_net_worth(user)
     mock_val = mock_total_value(user, market)
-    invest_val = mock_portfolio_value(user, market)
+    total_assets = real_nw + mock_val
 
-    st.markdown("#### 💰 실제 자금 (내가 진짜 가진 돈)")
-    r1, r2, r3 = st.columns(3)
-    r1.metric("실제 순자산", format_korean_money(real_nw))
-    r2.metric("지갑 잔액", format_korean_money(user.get("real_cash", 0)))
-    r3.metric("저축액", format_korean_money(total_saving_amount(user)))
-
-    st.write("")
-    st.markdown("#### 🧪 모의투자 (연습용, 실제 자금 아님)")
-    m1, m2, m3 = st.columns(3)
-    m1.metric("모의투자 계좌 총액", format_korean_money(mock_val))
-    m2.metric("모의 현금", format_korean_money(user.get("mock_cash", 0)))
-    m3.metric("투자 평가액", format_korean_money(invest_val))
-
-    st.write("")
     month_start = time.mktime(time.strptime(time.strftime("%Y-%m-01"), "%Y-%m-%d"))
     month_expense = sum(t["amount"] for t in user["tx_log"]
                          if t.get("kind") == "expense" and t.get("ts", 0) >= month_start)
-    n_badges = len(user.get("badges", []))
-    n_held = len([1 for pos in user.get("portfolio", {}).values() if pos.get("qty", 0) > 0])
-    g = goal_progress(user)
-
-    c5, c6, c7, c8 = st.columns(4)
-    c5.metric("이번 달 지출", format_korean_money(month_expense))
-    c6.metric("획득 뱃지", f"{n_badges} / {len(BADGES)}")
-    c7.metric("보유 종목 수", f"{n_held}개")
-    c8.metric("목표 달성률", f"{g['pct']*100:.0f}%" if g else "목표 없음")
-
-    st.write("")
     fh = financial_health_score(user, market)
-    forecast = predict_next_month_expense(user)
-    hcol, fcol = st.columns([1, 1])
-    with hcol:
-        with st.container(border=True):
-            st.markdown(f"#### 🩺 재무 건강 점수 · {fh['score']}점 ({fh['grade']}등급)")
-            st.progress(min(1.0, fh["score"] / 100))
-            st.caption(fh["comment"])
-            with st.expander("점수 구성 자세히 보기"):
-                for b in fh["breakdown"]:
-                    st.write(f"**{b['key']}** — {b['points']}/{b['max']}점")
-                    st.caption(b["detail"])
-    with fcol:
-        with st.container(border=True):
-            st.markdown("#### 🔮 다음 달 예상 지출")
-            if forecast:
-                st.metric("예상 지출액", format_korean_money(forecast["forecast"]))
-                if forecast["anomaly"]:
-                    st.warning("⚠️ 최근 지출 흐름이 평소보다 크게 늘었어요. 가계부에서 원인을 점검해보세요.")
-                if forecast["history"]:
-                    hist_df = pd.DataFrame(forecast["history"], columns=["월", "지출액"])
-                    st.caption("최근 월별 지출 추이 (가중평균 + 추세로 예측)")
-                    st.dataframe(hist_df, use_container_width=True, hide_index=True)
-            else:
-                st.caption("가계부 기록이 쌓이면 다음 달 지출을 예측해드려요.")
+    level, pct, next_ceil = xp_progress(user["xp"])
+    delta_score = fh["score"] - 50  # 중간(50점) 대비 상승/하강 뱃지 텍스트용
 
-    nw_fig = net_worth_chart(user)
-    if nw_fig:
-        st.write("")
-        st.caption("📈 실제자금 vs 모의투자 추이 (세션 내, 초록=실제자금 · 파랑=모의투자)")
-        st.plotly_chart(nw_fig, use_container_width=True, config={"displayModeBar": False})
+    # ── 인사 헤더 ──
+    st.markdown(f"""<div class="db-greet">
+        <div>
+            <div class="db-hello">안녕하세요, {html.escape(display_name)}님 👋</div>
+            <div class="db-sub">오늘도 좋은 소비 습관 이어가볼까요?</div>
+        </div>
+        <span class="level-badge">⭐ Lv.{level} · {fh['grade']}등급</span>
+        </div>""", unsafe_allow_html=True)
+
+    # ── 총자산 / 이번달 지출 / 재무 건강 점수 ──
+    st.markdown(f"""<div class="stat-grid">
+        <div class="stat-box primary">
+            <div class="stat-label">총자산</div>
+            <div class="stat-value">{format_korean_money(total_assets)}</div>
+            <div class="stat-foot">실제 {format_korean_money(real_nw)} · 모의 {format_korean_money(mock_val)}</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">이번 달 지출</div>
+            <div class="stat-value">{format_korean_money(month_expense)}</div>
+            <div class="stat-foot">가계부 탭에서 자세히 보기</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">재무 건강 점수</div>
+            <div class="stat-value">{fh['score']}<span class="stat-unit"> / 100</span></div>
+            <div class="stat-foot">{'▲' if delta_score >= 0 else '▼'} {fh['comment']}</div>
+        </div>
+        </div>""", unsafe_allow_html=True)
+
+    # ── 자산 배분 / 순자산 추이 ──
+    col_pie, col_line = st.columns([1, 1])
+    with col_pie:
+        with st.container(border=True):
+            st.markdown('<div class="card-head">🧭 자산 배분</div>', unsafe_allow_html=True)
+            fig_alloc = combined_asset_donut(user, market)
+            if fig_alloc:
+                st.plotly_chart(fig_alloc, use_container_width=True, config={"displayModeBar": False})
+            else:
+                st.caption("자산이 쌓이면 배분 현황을 보여드려요.")
+    with col_line:
+        with st.container(border=True):
+            st.markdown('<div class="card-head">📈 순자산 추이</div>', unsafe_allow_html=True)
+            nw_fig = net_worth_chart(user)
+            if nw_fig:
+                st.plotly_chart(nw_fig, use_container_width=True, config={"displayModeBar": False})
+                st.caption("초록(빨강)=실제 자금 · 파랑=모의투자 (세션 내 기록 기준)")
+            else:
+                st.caption("기록이 쌓이면 순자산 추이를 보여드려요.")
+
+    # ── 최근 내역 ──
+    with st.container(border=True):
+        st.markdown('<div class="card-head">🕒 최근 내역</div>', unsafe_allow_html=True)
+        if user.get("tx_log"):
+            rows_html = []
+            for t in user["tx_log"][:6]:
+                icon, title, sub, amt = _tx_row_data(t)
+                amt_cls = "pos" if amt > 0 else "neg"
+                amt_str = f"{'+' if amt > 0 else ''}{format_korean_money(amt)}" if amt != 0 else "0원"
+                when = relative_time(t.get("ts", time.time()))
+                rows_html.append(f"""<div class="activity-row">
+                    <div class="act-icon">{icon}</div>
+                    <div class="act-main">
+                        <div class="act-title">{html.escape(str(title))}</div>
+                        <div class="act-sub">{html.escape(str(sub))} · {when}</div>
+                    </div>
+                    <div class="act-amt {amt_cls}">{amt_str}</div>
+                    </div>""")
+            st.markdown(f'<div class="activity-card">{"".join(rows_html)}</div>', unsafe_allow_html=True)
+        else:
+            st.caption("아직 기록이 없어요. '가계부' 탭에서 첫 지출을 기록해보세요.")
 
     tip = TIPS[int(time.strftime("%j")) % len(TIPS)]
     st.info(tip)
 
-    st.write("")
-    col_l, col_r = st.columns([3, 2])
-    with col_l:
-        if user.get("portfolio"):
-            st.subheader("보유 포트폴리오 (모의투자)")
+    # ── 보유 포트폴리오 (모의투자) ──
+    if user.get("portfolio") and any(pos.get("qty", 0) > 0 for pos in user["portfolio"].values()):
+        with st.container(border=True):
+            st.markdown('<div class="card-head">📊 보유 포트폴리오 (모의투자)</div>', unsafe_allow_html=True)
             rows = []
             for aid, pos in user["portfolio"].items():
                 if pos.get("qty", 0) <= 0:
@@ -659,38 +785,45 @@ def render_dashboard(user, market):
                              "현재가": format_korean_money(cur),
                              "평가액": format_korean_money(val),
                              "손익": f"{format_korean_money(pnl)} ({pnl_pct:+.1f}%)"})
-            if rows:
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-        else:
-            st.info("아직 투자한 자산이 없어요. '모의투자' 탭에서 시작해보세요.")
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-        if user.get("tx_log"):
-            st.subheader("최근 활동")
-            for t in user["tx_log"][:5]:
-                kind_label = {"expense": "🧾 지출", "income": "💵 수입", "invest_buy": "📈 매수", "invest_sell": "📉 매도",
-                              "savings_open": "🏦 예적금 가입", "savings_deposit": "💰 추가 납입",
-                              "savings_close": "🔓 예적금 해지"}.get(t.get("kind"), t.get("kind"))
-                st.caption(f"{relative_time(t.get('ts', time.time()))} · {kind_label}")
-    with col_r:
-        st.subheader("💰 실제 자금 배분")
-        fig_real = real_asset_donut(user)
-        if fig_real:
-            st.plotly_chart(fig_real, use_container_width=True, config={"displayModeBar": False})
-        else:
-            st.caption("지갑에 돈을 채우거나 저축을 시작하면 여기에 표시돼요.")
+    # ── 획득 뱃지 스트립 ──
+    earned = [b for b in BADGES if b["id"] in user.get("badges", [])]
+    g = goal_progress(user)
+    n_held = len([1 for pos in user.get("portfolio", {}).values() if pos.get("qty", 0) > 0])
+    chips = []
+    if earned:
+        for b in earned[-3:][::-1]:
+            chips.append(f'<span class="mini-badge"><span class="mb-icon">{b["icon"]}</span>{b["name"]}</span>')
+    chips.append(f'<span class="mini-badge"><span class="mb-icon">🏅</span>뱃지 {len(earned)}/{len(BADGES)}</span>')
+    chips.append(f'<span class="mini-badge"><span class="mb-icon">📈</span>보유 종목 {n_held}개</span>')
+    goal_pct_str = f"{g['pct']*100:.0f}%" if g else "목표 없음"
+    chips.append(f'<span class="mini-badge"><span class="mb-icon">🎯</span>목표 달성률 {goal_pct_str}</span>')
+    st.write("")
+    st.markdown(f'<div class="mini-badge-row">{"".join(chips)}</div>', unsafe_allow_html=True)
 
-        st.subheader("🧪 모의투자 배분")
-        fig_mock = mock_portfolio_donut(user, market)
-        if fig_mock:
-            st.plotly_chart(fig_mock, use_container_width=True, config={"displayModeBar": False})
-        else:
-            st.caption("모의투자를 시작하면 여기에 표시돼요.")
-
-        earned = [b for b in BADGES if b["id"] in user.get("badges", [])]
-        if earned:
-            st.caption(f"🏅 최근 획득 뱃지 ({len(earned)}개 보유 중)")
-            recent = earned[-3:][::-1]
-            st.write(" ".join(f"{b['icon']} {b['name']}" for b in recent))
+    # ── 다음 달 예상 지출 (상세, 접어두기) ──
+    forecast = predict_next_month_expense(user)
+    with st.expander("🔮 다음 달 예상 지출 · 재무 건강 점수 상세 보기"):
+        fcol, hcol = st.columns([1, 1])
+        with fcol:
+            st.markdown("**다음 달 예상 지출**")
+            if forecast:
+                st.metric("예상 지출액", format_korean_money(forecast["forecast"]))
+                if forecast["anomaly"]:
+                    st.warning("⚠️ 최근 지출 흐름이 평소보다 크게 늘었어요. 가계부에서 원인을 점검해보세요.")
+                if forecast["history"]:
+                    hist_df = pd.DataFrame(forecast["history"], columns=["월", "지출액"])
+                    st.caption("최근 월별 지출 추이 (가중평균 + 추세로 예측)")
+                    st.dataframe(hist_df, use_container_width=True, hide_index=True)
+            else:
+                st.caption("가계부 기록이 쌓이면 다음 달 지출을 예측해드려요.")
+        with hcol:
+            st.markdown(f"**재무 건강 점수 구성 · {fh['score']}점 ({fh['grade']}등급)**")
+            st.progress(min(1.0, fh["score"] / 100))
+            for b in fh["breakdown"]:
+                st.write(f"**{b['key']}** — {b['points']}/{b['max']}점")
+                st.caption(b["detail"])
 
 
 # ── 모의투자 ──────────────────────────────────────────────────────────────
@@ -1768,7 +1901,7 @@ def main():
     with tabs[0]:
         render_guide_tab(user)
     with tabs[1]:
-        render_dashboard(user, market)
+        render_dashboard(user, market, profile['name'])
     with tabs[2]:
         render_onboarding(user)
     with tabs[3]:
