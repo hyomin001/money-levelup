@@ -12,7 +12,7 @@ from utils.config import (
     STARTING_MOCK_CASH, STARTING_REAL_CASH,
     ONBOARDING_QUESTIONS, BADGES, BENCHMARK_SPENDING_RATIO,
     SCAM_SCENARIOS, LEVERAGE_OPTIONS, LEVERAGE_SEED, LEVERAGE_MAINTENANCE_RATIO,
-    CRISIS_SCENARIOS, CRISIS_DECISION_CHOICES,
+    CRISIS_SCENARIOS, CRISIS_DECISION_CHOICES, GUIDE_SECTIONS,
 )
 from utils.core import (
     get_user, save_user, default_user, log_tx, delete_tx, add_income, adjust_balance,
@@ -26,6 +26,7 @@ from utils.core import (
     run_leverage_simulation, record_leverage_trial,
     get_crisis_path, reset_crisis_path, simulate_crisis_decisions, record_crisis_result,
     check_risk_lab_badges,
+    spending_persona, estimate_retirement,
 )
 from utils.ai_coach import get_financial_diagnosis, get_risk_profile, get_full_report, chat_with_coach
 from utils.database import db_available
@@ -292,6 +293,23 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'I
 .scam-grade.g-danger  { background: #F3D4CB; color: #8A2E1C; border: 1px solid #8A2E1C; }
 .liq-banner { background: #F3D4CB; border: 1px solid #8A2E1C; color: #6B2314; border-radius: 12px;
     padding: 12px 16px; font-weight: 700; margin: 10px 0; }
+.persona-card { display:flex; align-items:center; gap:16px; background: var(--brand-soft);
+    border: 1px solid var(--brand); border-radius: 16px; padding: 16px 20px; margin: 10px 0 18px 0; }
+.persona-card .persona-icon { font-size: 2.1rem; }
+.persona-card .persona-name { font-family:'Noto Serif KR', serif; font-weight: 800; color: var(--brand-deep); font-size: 1.05rem; }
+.persona-card .persona-desc { font-size: 0.82rem; color: var(--ink-soft); margin-top: 2px; }
+
+/* ── 이용 가이드 ── */
+.guide-hero {
+    background: linear-gradient(155deg, var(--brand-deep) 0%, #0D3F2E 60%, #0A2E22 100%); color: #fff;
+    border-radius: 20px; padding: 26px 30px; margin-bottom: 18px; box-shadow: 0 16px 32px -16px rgba(10,58,42,0.55);
+}
+.guide-hero h1 { color: #fff !important; margin: 0 0 6px 0; font-size: 1.5rem; }
+.guide-hero p { margin: 0; opacity: .85; font-size: 0.9rem; }
+.guide-step-num {
+    display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%;
+    background: var(--brand); color:#fff; font-weight:800; font-size:0.8rem; margin-right:8px; flex-shrink:0;
+}
 
 /* ══════════════════════════════════════════════════════════════════
    UI/UX 강화 패치 — Streamlit 기본 위젯을 "통장/원장" 톤에 맞춰 재단장
@@ -1036,11 +1054,25 @@ def render_savings(user):
 
 
 # ── 뱃지 / 레벨 ───────────────────────────────────────────────────────────
-def render_badges(user):
+def render_badges(user, market):
     level, pct, next_ceil = xp_progress(user["xp"])
     st.subheader(f"🏅 레벨 {level}")
     st.progress(pct, text=f"XP {user['xp']} / {next_ceil}")
     st.caption(f"확률형 아이템이 아닌, 조건을 채우면 100% 지급되는 성취 배지입니다. ({len(user['badges'])} / {len(BADGES)} 개 획득)")
+
+    persona = spending_persona(user)
+    st.markdown(f"""<div class="persona-card">
+        <div class="persona-icon">{persona['icon']}</div>
+        <div><div class="persona-name">{persona['name']}</div>
+        <div class="persona-desc">{persona['desc']}</div></div>
+        </div>""", unsafe_allow_html=True)
+
+    with st.expander("📇 내 금융 리포트 카드 다운로드"):
+        st.caption("레벨·뱃지·재무 건강 점수·리스크 체험관 성적을 한 장으로 모은 요약 카드예요. 공모전 제출용 캡처나 공유에 써보세요.")
+        html = build_report_card_html(user, market)
+        st.components.v1.html(html, height=560, scrolling=True)
+        st.download_button("⬇️ HTML로 다운로드", data=html, file_name=f"{user.get('name','user')}_머니레벨업_리포트카드.html",
+                            mime="text/html")
 
     cols = st.columns(6)
     ROTATIONS = [-5, 3, -3, 6, -6, 2]
@@ -1427,6 +1459,176 @@ def render_risk_lab(user):
         render_crisis_lab(user)
 
 
+# ── 🧓 노후 준비 설계 ────────────────────────────────────────────────────
+def render_retirement(user, age: int):
+    st.subheader("🧓 노후 준비 설계")
+    st.caption("지금의 저축 속도로 은퇴 시점에 얼마가 모이는지, 필요한 노후자금과 비교해봅니다. "
+               "'연간 생활비의 25배' 휴리스틱(4% 인출룰 근사)을 사용한 교육용 근사 계산입니다.")
+
+    current_total = round(real_net_worth(user) + mock_total_value(user, get_market()))
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        current_age = st.number_input("현재 나이", min_value=15, max_value=80, value=int(age), step=1)
+        retire_age = st.number_input("은퇴 목표 나이", min_value=current_age + 1, max_value=90, value=max(current_age + 1, 65), step=1)
+    with c2:
+        current_assets = st.number_input("현재 총자산(원)", min_value=0, value=current_total, step=100_000,
+                                          help="대시보드의 순자산(실제+모의)을 기본값으로 불러왔어요. 직접 수정 가능합니다.")
+        monthly_saving = st.number_input("매월 추가 저축/투자액(원)", min_value=0, value=300_000, step=50_000)
+    with c3:
+        annual_return = st.slider("예상 연 수익률(%)", 0.0, 12.0, 5.0, 0.5)
+        inflation = st.slider("예상 물가상승률(%)", 0.0, 6.0, 2.5, 0.5)
+    monthly_expense_today = st.number_input("은퇴 후 희망 월 생활비(오늘 기준, 원)", min_value=0, value=2_500_000, step=100_000)
+
+    result = estimate_retirement(current_age, retire_age, current_assets, monthly_saving,
+                                  annual_return, monthly_expense_today, inflation)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(y=result["curve"], mode="lines", name="예상 자산 곡선",
+                              line=dict(color="#0E7C5A", width=2.6), fill="tozeroy", fillcolor="rgba(14,124,90,0.08)"))
+    fig.add_hline(y=result["needed_corpus"], line_dash="dash", line_color="#B8442F",
+                  annotation_text="목표 노후자금", annotation_font_color="#B8442F")
+    fig.update_layout(**PLOTLY_DARK, height=300, showlegend=False)
+    fig.update_xaxes(title="개월 수", showgrid=False)
+    fig.update_yaxes(title="자산(원)", showgrid=False)
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric(f"{result['years']}년 후 예상 자산", format_korean_money(round(result["projected_corpus"])))
+    m2.metric("필요한 노후자금", format_korean_money(round(result["needed_corpus"])),
+               help=f"은퇴 시점 월 생활비 {format_korean_money(round(result['future_monthly_expense']))} 기준 (물가상승 반영) × 12개월 × 25배")
+    m3.metric("달성률", f"{result['achieved_pct']*100:.0f}%",
+               delta=format_korean_money(round(result["gap"])) + (" 여유" if result["gap"] >= 0 else " 부족"))
+
+    if result["gap"] >= 0:
+        st.success(f"현재 페이스면 목표 노후자금을 달성할 수 있을 것으로 예상돼요. "
+                   f"매월 {format_korean_money(round(result['required_monthly']))}만 저축해도 이론상 충분해요.")
+    else:
+        st.warning(f"현재 페이스로는 목표에 {format_korean_money(round(abs(result['gap'])))}만큼 부족할 것으로 예상돼요. "
+                   f"목표 달성을 위해서는 매월 약 {format_korean_money(round(result['required_monthly']))}씩 저축해야 해요 "
+                   f"(현재 설정: {format_korean_money(monthly_saving)}).")
+    st.caption("⚠️ 실제 연금·세제 혜택(연금저축·IRP 등), 국민연금 수령액은 반영되지 않은 단순화된 교육용 계산입니다.")
+
+
+# ── 📇 금융 리포트 카드 (다운로드/공유용) ──────────────────────────────────
+def build_report_card_html(user, market) -> str:
+    level, pct, next_ceil = xp_progress(user["xp"])
+    hs = financial_health_score(user, market)
+    persona = spending_persona(user)
+    scam = scam_lab_summary(user)
+    rl = user.get("risk_lab", {})
+    nw = round(real_net_worth(user) + mock_total_value(user, market))
+    badge_count = len(user.get("badges", []))
+    today = date.today().strftime("%Y.%m.%d")
+    name = user.get("name", "회원")
+
+    return f"""<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>{name}님의 머니레벨업 리포트 카드</title>
+<style>
+  body {{ margin:0; padding:40px; background:#F3F6EF; font-family:'Noto Sans KR',sans-serif; }}
+  .card {{ max-width:640px; margin:0 auto; background:#FFFDF8; border:1px solid #DCE6D8; border-radius:22px;
+           padding:34px 38px; box-shadow:0 18px 40px -20px rgba(10,58,42,0.35); }}
+  .hd {{ background:linear-gradient(155deg,#0A5A40,#0D3F2E 60%,#0A2E22); color:#fff; border-radius:16px;
+         padding:22px 26px; margin-bottom:22px; }}
+  .hd h1 {{ font-family:'Noto Serif KR',serif; margin:0 0 4px 0; font-size:1.5rem; }}
+  .hd p {{ margin:0; opacity:.8; font-size:.85rem; }}
+  .row {{ display:flex; gap:14px; margin-bottom:16px; flex-wrap:wrap; }}
+  .stat {{ flex:1; min-width:130px; background:#F3F6EF; border:1px solid #DCE6D8; border-radius:14px; padding:14px 16px; }}
+  .stat .k {{ font-size:.72rem; color:#5B6B60; margin-bottom:4px; }}
+  .stat .v {{ font-family:'Noto Serif KR',serif; font-size:1.25rem; color:#1C2B24; font-weight:700; }}
+  .section {{ margin-top:22px; }}
+  .section h2 {{ font-family:'Noto Serif KR',serif; font-size:1.05rem; color:#1C2B24; border-bottom:2px solid #0E7C5A;
+                 display:inline-block; padding-bottom:3px; margin-bottom:12px; }}
+  .persona {{ display:flex; align-items:center; gap:14px; background:#E4F1EA; border:1px solid #0E7C5A;
+              border-radius:14px; padding:14px 18px; }}
+  .persona .icon {{ font-size:2rem; }}
+  .persona .name {{ font-weight:800; color:#0A5A40; font-size:1.05rem; }}
+  .persona .desc {{ font-size:.82rem; color:#5B6B60; margin-top:2px; }}
+  .footer {{ margin-top:26px; text-align:center; font-size:.72rem; color:#5B6B60; }}
+  .grade {{ display:inline-block; padding:4px 14px; border-radius:999px; font-weight:800; background:#F6EBD3; color:#A9791F; border:1px solid #A9791F; }}
+</style></head>
+<body>
+  <div class="card">
+    <div class="hd">
+      <h1>💡 {name}님의 머니레벨업 리포트 카드</h1>
+      <p>{today} 기준 · 실제 돈이 아닌 학습용 시뮬레이션 데이터입니다</p>
+    </div>
+
+    <div class="row">
+      <div class="stat"><div class="k">레벨</div><div class="v">Lv.{level}</div></div>
+      <div class="stat"><div class="k">누적 XP</div><div class="v">{user['xp']}</div></div>
+      <div class="stat"><div class="k">획득 뱃지</div><div class="v">{badge_count}개</div></div>
+      <div class="stat"><div class="k">순자산</div><div class="v">{format_korean_money(nw)}</div></div>
+    </div>
+
+    <div class="section">
+      <h2>재무 건강 점수</h2>
+      <p><span class="grade">{hs['grade']}등급</span> &nbsp; {hs['score']}/100점 — {hs['comment']}</p>
+    </div>
+
+    <div class="section">
+      <h2>소비 페르소나</h2>
+      <div class="persona">
+        <div class="icon">{persona['icon']}</div>
+        <div><div class="name">{persona['name']}</div><div class="desc">{persona['desc']}</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>🚨 리스크 체험관 성적</h2>
+      <div class="row">
+        <div class="stat"><div class="k">사기 대응 훈련</div><div class="v">{scam['total']}/{scam['max']}점</div></div>
+        <div class="stat"><div class="k">레버리지 체험</div><div class="v">{rl.get('leverage_trials',0)}회</div></div>
+        <div class="stat"><div class="k">위기 리플레이</div><div class="v">{len(rl.get('crisis_completed',{}))}/4개</div></div>
+      </div>
+    </div>
+
+    <div class="footer">머니레벨업 — 사회초년생을 위한 AI 소비·투자 코칭 모의 서비스<br>실제 돈 없이, 실패해도 되는 연습장</div>
+  </div>
+</body></html>"""
+
+
+# ── 📖 이용 가이드 ─────────────────────────────────────────────────────
+def render_guide_sections(expand_first: bool = True):
+    for i, sec in enumerate(GUIDE_SECTIONS):
+        with st.expander(f"{sec['icon']}  {sec['title']}", expanded=(expand_first and i == 0)):
+            st.markdown(f'<span class="guide-step-num">{i+1}</span>&nbsp;{sec["body"]}', unsafe_allow_html=True)
+            for tip in sec.get("tips", []):
+                st.caption(f"💡 {tip}")
+
+
+def render_guide_tab(user):
+    st.subheader("📖 이용 가이드")
+    st.caption("머니레벨업의 각 기능을 처음부터 다시 훑어보고 싶을 때 여기서 확인하세요.")
+    if st.button("🎬 처음 봤던 튜토리얼 화면으로 다시 보기"):
+        st.session_state["_show_guide_overlay"] = True
+        st.rerun()
+    render_guide_sections(expand_first=False)
+
+
+def render_guide_page(user, first_visit: bool):
+    st.markdown(f"""<div class="guide-hero">
+        <h1>📖 머니레벨업, 이렇게 써보세요</h1>
+        <p>{"처음 오셨네요! 시작하기 전에 이 앱이 어떻게 구성돼 있는지 3분만 훑어볼까요?" if first_visit else "언제든 다시 볼 수 있는 이용 가이드예요."}</p>
+        </div>""", unsafe_allow_html=True)
+
+    render_guide_sections(expand_first=True)
+
+    st.divider()
+    label = "🚀 이제 시작할게요!" if first_visit else "닫고 앱으로 돌아가기"
+    if st.button(label, type="primary", use_container_width=True):
+        if first_visit:
+            user["guide_seen"] = True
+            _persist(user)
+        st.session_state["_show_guide_overlay"] = False
+        st.rerun()
+    if first_visit:
+        if st.button("나중에 볼게요 (건너뛰기)"):
+            user["guide_seen"] = True
+            _persist(user)
+            st.rerun()
+
+
 def _make_uid(name: str, birth_year: int) -> str:
     slug = "".join(ch for ch in name.strip().lower() if ch.isalnum())
     return f"{slug}_{birth_year}"
@@ -1508,10 +1710,17 @@ def main():
     for bid in newly:
         st.toast(f"🏅 뱃지 획득: {BADGE_BY_ID[bid]['name']}", icon="🎉")
 
+    if not user.get("guide_seen") or st.session_state.get("_show_guide_overlay"):
+        render_guide_page(user, first_visit=not user.get("guide_seen"))
+        return
+
     age = time.localtime().tm_year - profile["birth_year"] + 1  # 한국식 나이
 
     with st.sidebar:
         st.write(f"👋 **{profile['name']}**님 ({age}세)")
+        if st.button("📖 이용 가이드 다시 보기", use_container_width=True):
+            st.session_state["_show_guide_overlay"] = True
+            st.rerun()
         if db_available():
             st.caption("✅ 저장소 연결됨 — 같은 이름+출생연도로 다시 오면 오늘까지의 기록이 그대로 이어져요.")
             last_ok = st.session_state.get("_last_save_ok")
@@ -1560,28 +1769,32 @@ def main():
 
     render_news_ticker(market)
 
-    tabs = st.tabs(["📊 대시보드", "🧭 투자성향", "📈 모의투자", "🧾 가계부",
-                    "🎯 목표저축", "🏦 예/적금", "🚨 리스크 체험관", "🤖 AI 코치", "💬 AI 상담", "🏅 뱃지"])
+    tabs = st.tabs(["📖 가이드", "📊 대시보드", "🧭 투자성향", "📈 모의투자", "🧾 가계부",
+                    "🎯 목표저축", "🏦 예/적금", "🚨 리스크 체험관", "🧓 노후 준비", "🤖 AI 코치", "💬 AI 상담", "🏅 뱃지"])
     with tabs[0]:
-        render_dashboard(user, market)
+        render_guide_tab(user)
     with tabs[1]:
-        render_onboarding(user)
+        render_dashboard(user, market)
     with tabs[2]:
-        render_invest(user, market)
+        render_onboarding(user)
     with tabs[3]:
-        render_expense(user)
+        render_invest(user, market)
     with tabs[4]:
-        render_goals(user)
+        render_expense(user)
     with tabs[5]:
-        render_savings(user)
+        render_goals(user)
     with tabs[6]:
-        render_risk_lab(user)
+        render_savings(user)
     with tabs[7]:
-        render_ai_coach(user, market)
+        render_risk_lab(user)
     with tabs[8]:
-        render_ai_chat(user, market)
+        render_retirement(user, age)
     with tabs[9]:
-        render_badges(user)
+        render_ai_coach(user, market)
+    with tabs[10]:
+        render_ai_chat(user, market)
+    with tabs[11]:
+        render_badges(user, market)
 
     _persist(user)  # 뱃지/XP/순자산 추이 등 명시적 rerun 없이 바뀐 값도 매 실행마다 저장
 

@@ -60,6 +60,7 @@ def default_user(initial_real_cash: int = None, initial_savings: int = 0):
             "leverage_survive_5x": 0,    # 5배 이상에서 청산 없이 생존한 연속 횟수
             "crisis_completed": {},      # {scenario_id: {"final_value":..., "baseline_value":..., "decisions":[...]}}
         },
+        "guide_seen": False,    # 📖 첫 방문 이용 가이드를 이미 봤는지 여부
     }
     if initial_real_cash:
         log_tx(user, {"kind": "income", "category": "etc_in", "amount": int(initial_real_cash),
@@ -722,3 +723,95 @@ def check_risk_lab_badges(user):
         newly.append("crisis_all_clear")
 
     return newly
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🎭 소비 페르소나 — 최근 3개월 지출 카테고리 비중을 규칙 기반으로 분석해 태그를 붙인다.
+# ══════════════════════════════════════════════════════════════════════════
+SPENDING_PERSONAS = [
+    {"id": "sub_addict",  "icon": "📺", "name": "구독 중독형",
+     "desc": "매달 빠져나가는 구독료가 쌓여 지출의 큰 축을 차지하고 있어요. 안 쓰는 구독은 없는지 한 번 점검해보세요."},
+    {"id": "caffeine",    "icon": "☕", "name": "카페인 러버형",
+     "desc": "카페/간식 지출 비중이 눈에 띄게 높아요. 하루 한 잔의 습관이 한 달이면 꽤 큰 돈이 됩니다."},
+    {"id": "flex",        "icon": "🛍️", "name": "플렉스형",
+     "desc": "쇼핑 지출 비중이 커요. 큰 소비 전에 '이게 정말 필요한가'를 한 번 더 물어보는 습관을 들여보세요."},
+    {"id": "leisure",     "icon": "🎮", "name": "여가 러버형",
+     "desc": "여가/문화 지출 비중이 높아요. 삶의 만족도엔 좋지만, 예산 안에서 즐기고 있는지 가끔 점검해봐요."},
+    {"id": "homebody",    "icon": "🏠", "name": "안정 지향형",
+     "desc": "주거/공과금 등 고정비 비중이 크고 전체 지출은 안정적이에요. 여유 자금을 저축/투자로 옮겨볼 타이밍입니다."},
+    {"id": "balanced",    "icon": "⚖️", "name": "균형 잡힌 소비형",
+     "desc": "특정 카테고리에 치우치지 않고 고르게 소비하고 있어요. 지금의 균형 감각을 잘 유지해보세요."},
+    {"id": "no_data",     "icon": "🌱", "name": "아직 데이터가 부족해요",
+     "desc": "가계부 기록이 조금 더 쌓이면 당신만의 소비 페르소나를 분석해드릴게요."},
+]
+PERSONA_BY_ID = {p["id"]: p for p in SPENDING_PERSONAS}
+_PERSONA_CATEGORY_MAP = {"sub": "sub_addict", "cafe": "caffeine", "shopping": "flex", "leisure": "leisure"}
+
+
+def spending_persona(user):
+    tx = user.get("tx_log", [])
+    now = time.time()
+    three_months_ago = now - 90 * 24 * 3600
+    expenses = [t for t in tx if t.get("kind") == "expense" and t.get("ts", 0) >= three_months_ago]
+    total = sum(t.get("amount", 0) for t in expenses)
+    if total <= 0 or len(expenses) < 3:
+        return PERSONA_BY_ID["no_data"]
+
+    by_cat = {}
+    for t in expenses:
+        by_cat[t.get("category", "etc")] = by_cat.get(t.get("category", "etc"), 0) + t.get("amount", 0)
+    ratios = {cat: amt / total for cat, amt in by_cat.items()}
+
+    living_ratio = ratios.get("living", 0)
+    if living_ratio >= 0.4 and max([r for c, r in ratios.items() if c != "living"], default=0) < 0.2:
+        return PERSONA_BY_ID["homebody"]
+
+    best_cat, best_ratio = max(
+        ((c, r) for c, r in ratios.items() if c in _PERSONA_CATEGORY_MAP), key=lambda x: x[1], default=(None, 0))
+    if best_cat and best_ratio >= 0.22:
+        return PERSONA_BY_ID[_PERSONA_CATEGORY_MAP[best_cat]]
+
+    return PERSONA_BY_ID["balanced"]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🧓 노후 준비 설계 — 단리/복리 누적 + '연간 지출의 25배' 목표자금 휴리스틱(4% 룰 근사) 기반 계산기.
+# 실제 연금 상품과 무관한 교육용 근사 계산입니다.
+# ══════════════════════════════════════════════════════════════════════════
+def estimate_retirement(current_age: int, retire_age: int, current_assets: float,
+                         monthly_saving: float, annual_return_pct: float,
+                         monthly_expense_today: float, inflation_pct: float,
+                         withdrawal_multiple: float = 25.0):
+    years = max(0, retire_age - current_age)
+    months = years * 12
+    monthly_return = (1 + annual_return_pct / 100) ** (1 / 12) - 1
+
+    curve = [current_assets]
+    balance = float(current_assets)
+    for _m in range(months):
+        balance = balance * (1 + monthly_return) + monthly_saving
+        curve.append(balance)
+
+    projected_corpus = curve[-1]
+    future_monthly_expense = monthly_expense_today * ((1 + inflation_pct / 100) ** years)
+    needed_corpus = future_monthly_expense * 12 * withdrawal_multiple
+
+    gap = projected_corpus - needed_corpus
+    achieved_pct = min(2.0, projected_corpus / needed_corpus) if needed_corpus > 0 else 1.0
+
+    # 목표 달성에 필요한 월 저축액 역산 (연금 미래가치 공식, monthly_return≈0인 경우도 처리)
+    if months > 0:
+        if abs(monthly_return) < 1e-9:
+            required_monthly = (needed_corpus - current_assets) / months
+        else:
+            fv_factor = ((1 + monthly_return) ** months - 1) / monthly_return
+            required_monthly = (needed_corpus - current_assets * (1 + monthly_return) ** months) / fv_factor
+        required_monthly = max(0.0, required_monthly)
+    else:
+        required_monthly = 0.0
+
+    return {
+        "years": years, "curve": curve, "projected_corpus": projected_corpus,
+        "needed_corpus": needed_corpus, "future_monthly_expense": future_monthly_expense,
+        "gap": gap, "achieved_pct": achieved_pct, "required_monthly": required_monthly,
+    }
