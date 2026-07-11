@@ -70,58 +70,44 @@ PLOTLY_DARK = dict(
     margin=dict(l=10, r=10, t=10, b=10),
 )
 
-UP_COLOR, DOWN_COLOR = "#FF4D6D", "#3E7BFA"      # 국내 시세 관행: 상승=빨강, 하락=파랑
-GAIN_COLOR, LOSS_COLOR = "#6C4CF1", "#FF4D6D"     # 순자산 추이: 늘면 초록, 줄면 빨강
-PIE_COLORS = ["#6C4CF1", "#E0A438", "#3E7BFA", "#FF4D6D", "#8B6EF5", "#C77DFF", "#16C79A", "#B4B8E0"]
+UP_COLOR, DOWN_COLOR = "#F04452", "#364FC7"       # 국내 시세 관행: 상승=빨강, 하락=파랑
+GAIN_COLOR, LOSS_COLOR = "#3182F6", "#F04452"     # 순자산 추이: 늘면 파랑(브랜드), 줄면 빨강
+PIE_COLORS = ["#3182F6", "#8FBBFF", "#1B64DA", "#F5A524", "#4E5968", "#93C5FD", "#F04452", "#B0B8C1"]
 
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Gothic+A1:wght@400;500;700;800;900&family=IBM+Plex+Mono:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800;900&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
 
 :root {
-    --paper: #F3F2FF; --paper-2: #FFFFFF; --ink: #15162E; --ink-soft: #6B6C8A;
-    --line: #E7E5F5; --brand: #6C4CF1; --brand-deep: #4B32C3; --brand-soft: #EFEAFE;
-    --gold: #F5A524; --gold-soft: #FFF4E0; --coral: #FF4D6D; --coral-soft: #FFE3E9;
-    --navy: #2A3363; --navy-soft: #E8EEFF;
+    --paper: #F2F4F6; --paper-2: #FFFFFF; --ink: #191F28; --ink-soft: #4E5968;
+    --ink-faint: #8B95A1; --line: #E5E8EB; --brand: #3182F6; --brand-deep: #1B64DA; --brand-soft: #E8F3FF;
+    --gold: #F5A524; --gold-soft: #FFF4E0; --coral: #F04452; --coral-soft: #FFEEF0;
+    --navy: #364FC7; --navy-soft: #EEF1FF;
 }
 
-.stApp {
-    background:
-        linear-gradient(0deg, rgba(108,76,241,0.06) 1px, transparent 1px) 0 0/100% 27px,
-        var(--paper);
-}
-h1, h2, h3, h4 { font-family: 'Black Han Sans', sans-serif !important; color: var(--ink) !important; letter-spacing: .2px; }
+.stApp { background: var(--paper); }
+h1, h2, h3, h4 { font-family: 'Noto Sans KR', sans-serif !important; color: var(--ink) !important; font-weight: 800 !important; letter-spacing: -.2px; }
 .stMarkdown, .stMarkdown p, .stMarkdown li, label, .stCaption, p, span, div[data-testid="stText"] {
-    color: var(--ink); font-family: 'Gothic A1','Noto Sans KR', sans-serif;
+    color: var(--ink); font-family: 'Noto Sans KR', sans-serif;
 }
-.stApp small, .stCaption, [data-testid="stCaptionContainer"] { color: var(--ink-soft) !important; }
+.stApp small, .stCaption, [data-testid="stCaptionContainer"] { color: var(--ink-faint) !important; }
 [data-testid="stSidebar"] { background: var(--paper-2); border-right: 1px solid var(--line); }
 hr { border-color: var(--line) !important; }
 
-/* 상단 레벨업 HUD (hero) */
+/* 상단 히어로 배너 */
 .ml-hero {
     position: relative; overflow: hidden;
-    background: linear-gradient(155deg, var(--brand-deep) 0%, #1C1140 62%, #120B2E 100%);
-    border-radius: 26px; padding: 28px 32px; margin-bottom: 14px;
-    box-shadow: 0 20px 40px -18px rgba(75,50,195,0.5);
-}
-.ml-hero::before {
-    content: ""; position: absolute; width: 260px; height: 260px; border-radius: 50%;
-    background: radial-gradient(circle, rgba(139,110,245,0.55) 0%, rgba(139,110,245,0) 70%);
-    top: -110px; right: -60px; pointer-events: none;
-}
-.ml-hero::after {
-    content: ""; position: absolute; width: 200px; height: 200px; border-radius: 50%;
-    background: radial-gradient(circle, rgba(245,165,36,0.35) 0%, rgba(245,165,36,0) 70%);
-    bottom: -90px; left: -40px; pointer-events: none;
+    background: var(--brand);
+    border-radius: 20px; padding: 26px 30px; margin-bottom: 14px;
+    box-shadow: 0 10px 24px -14px rgba(49,130,246,0.45);
 }
 .ml-hero .eyebrow {
     position: relative; font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
-    letter-spacing: 3px; color: #FFC94D; text-transform: uppercase; margin-bottom: 6px;
+    letter-spacing: 2px; color: rgba(255,255,255,0.85); text-transform: uppercase; margin-bottom: 8px;
     display: inline-flex; align-items: center; gap: 6px;
 }
-.ml-hero h1 { position: relative; margin: 0; font-size: 2rem; color: #F4F2FF !important; font-weight: 900; letter-spacing: .5px; }
-.ml-hero p  { position: relative; margin: 6px 0 0 0; color: rgba(240,238,255,0.78); font-size: 0.93rem; font-weight: 500; }
+.ml-hero h1 { position: relative; margin: 0; font-size: 1.7rem; color: #fff !important; font-weight: 800 !important; letter-spacing: -.3px; }
+.ml-hero p  { position: relative; margin: 6px 0 0 0; color: rgba(255,255,255,0.82); font-size: 0.92rem; font-weight: 500; }
 
 /* 뉴스 티커 */
 .ticker-wrap {
@@ -137,16 +123,16 @@ hr { border-color: var(--line) !important; }
 .ticker-inner { display: inline-block; animation: ticker-scroll 28s linear infinite; padding-left: 14px; }
 .ticker-inner:hover { animation-play-state: paused; }
 @keyframes ticker-scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
-.ticker-item { display: inline-flex; align-items: center; gap: 8px; margin-right: 42px; font-size: 0.83rem; color: var(--ink-soft); }
+.ticker-item { display: inline-flex; align-items: center; gap: 8px; margin-right: 42px; font-size: 0.83rem; color: var(--ink-faint); }
 .ticker-item b { color: var(--ink); }
 
 /* 카드형 metric */
 div[data-testid="stMetric"] {
-    background: var(--paper-2); border: 1px solid var(--line); border-radius: 14px;
-    padding: 14px 16px; box-shadow: 0 1px 2px rgba(21,22,46,0.05);
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 16px;
+    padding: 14px 16px; box-shadow: 0 1px 2px rgba(25,31,40,0.04);
 }
-div[data-testid="stMetricLabel"] { color: var(--ink-soft) !important; }
-div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'IBM Plex Mono', monospace !important; }
+div[data-testid="stMetricLabel"] { color: var(--ink-faint) !important; }
+div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'Space Grotesk', sans-serif !important; }
 
 /* 자산 카드 */
 .asset-card {
@@ -174,31 +160,30 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'I
 .ob-row span { position: relative; z-index: 1; }
 .ob-cur { text-align: center; padding: 7px; background: var(--gold-soft); font-weight: 700; color: var(--gold);
     font-family: 'IBM Plex Mono', monospace; font-size: 0.86rem;
-    border-top: 1px dashed #F7CE85; border-bottom: 1px dashed #F7CE85; letter-spacing: .3px; }
+    border-top: 1px dashed #F0C888; border-bottom: 1px dashed #F0C888; letter-spacing: .3px; }
 .ob-caption { font-size: 0.7rem; color: var(--ink-soft); text-align: center; padding: 4px 0 0 0; }
 
-/* ── 뱃지: 게임 achievement 배지 ── */
+/* ── 뱃지 ── */
 .stamp-cell { text-align: center; padding: 10px 6px 14px 6px; margin-bottom: 6px; }
 .stamp-circle {
-    width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 8px auto; position: relative;
+    width: 60px; height: 60px; border-radius: 50%; margin: 0 auto 8px auto; position: relative;
     display: flex; align-items: center; justify-content: center;
-    border: 2px solid var(--line); background: var(--paper-2); transition: transform .15s ease;
+    border: 1px solid var(--line); background: var(--paper-2); transition: transform .15s ease;
 }
 .stamp-circle.earned {
-    border: 2px solid var(--brand);
-    background: linear-gradient(155deg, var(--brand-soft), var(--paper-2));
-    box-shadow: 0 0 0 4px rgba(108,76,241,0.14), 0 6px 14px -6px rgba(75,50,195,0.5);
+    border: 1px solid var(--brand-soft);
+    background: var(--brand-soft);
 }
-.stamp-circle.earned:hover { transform: translateY(-2px) scale(1.04); }
+.stamp-circle.earned:hover { transform: translateY(-2px); }
 .stamp-circle.locked { opacity: 0.4; filter: grayscale(1); }
-.stamp-icon { font-size: 1.6rem; position: relative; }
-.stamp-name { font-family: 'Black Han Sans', sans-serif; font-weight: 700; font-size: 0.78rem; color: var(--ink); }
-.stamp-desc { font-size: 0.66rem; color: var(--ink-soft); margin-top: 2px; min-height: 28px; }
+.stamp-icon { font-size: 1.5rem; position: relative; }
+.stamp-name { font-family: 'Noto Sans KR', sans-serif; font-weight: 700; font-size: 0.78rem; color: var(--ink); }
+.stamp-desc { font-size: 0.66rem; color: var(--ink-faint); margin-top: 2px; min-height: 28px; }
 .stamp-xp { font-family: 'IBM Plex Mono', monospace; font-size: 0.63rem; font-weight: 700; color: var(--gold); margin-top: 3px; }
 
 /* 레벨 배지 */
-.level-badge { display:inline-flex; align-items:center; gap:8px; background: var(--paper-2); border:1px solid var(--gold);
-    border-radius: 999px; padding: 6px 14px; font-size: 0.82rem; color: var(--ink); font-family:'IBM Plex Mono',monospace; }
+.level-badge { display:inline-flex; align-items:center; gap:8px; background: var(--brand-soft); border:1px solid var(--brand-soft);
+    border-radius: 999px; padding: 6px 14px; font-size: 0.82rem; color: var(--brand-deep); font-weight: 700; font-family:'Noto Sans KR',sans-serif; }
 
 /* 온보딩 카드 */
 .onb-card { background: var(--paper-2); border:1px solid var(--line); border-radius:16px; padding:20px; margin-bottom:14px; }
@@ -206,123 +191,121 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'I
 /* ── 가계부: 카테고리 선택 pill ── */
 .stButton > button { border-radius: 10px !important; }
 .cat-pill-active button {
-    background: var(--brand) !important; border: 1px solid var(--brand-deep) !important;
-    color: white !important; font-weight: 700 !important; box-shadow: 0 3px 0 var(--brand-deep) !important;
+    background: var(--brand) !important; border: 1px solid var(--brand) !important;
+    color: white !important; font-weight: 700 !important; box-shadow: none !important;
 }
 
 /* 지출 카드 */
 .exp-card {
     display:flex; align-items:center; gap:12px;
-    background: var(--paper-2); border: 1px solid var(--line); border-left: 4px solid var(--accent, #7C8CFF);
-    border-radius: 12px; padding: 10px 14px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(21,22,46,0.05);
+    background: var(--paper-2); border: 1px solid var(--line); border-left: 4px solid var(--accent, #3182F6);
+    border-radius: 12px; padding: 10px 14px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(25,31,40,0.04);
 }
 .exp-card .exp-icon { font-size: 1.4rem; }
 .exp-card .exp-main { flex: 1; }
-.exp-card .exp-cat { font-size: 0.78rem; color: var(--ink-soft); }
+.exp-card .exp-cat { font-size: 0.78rem; color: var(--ink-faint); }
 .exp-card .exp-memo { font-size: 0.85rem; color: var(--ink); font-weight: 600; }
-.exp-card .exp-amt { font-family:'IBM Plex Mono',monospace; font-weight:700; color: var(--coral); }
-.exp-card .exp-time { font-size: 0.68rem; color: var(--ink-soft); margin-top: 2px; }
+.exp-card .exp-amt { font-family:'Space Grotesk',sans-serif; font-weight:700; color: var(--coral); }
+.exp-card .exp-time { font-size: 0.68rem; color: var(--ink-faint); margin-top: 2px; }
 
 /* ── 목표저축 / 예적금 카드 ── */
 .goal-hero {
-    background: linear-gradient(135deg, var(--brand-soft), var(--paper-2));
-    border: 1px solid var(--brand); border-radius: 18px; padding: 20px 22px; margin-bottom: 12px;
+    background: var(--brand-soft);
+    border: 1px solid var(--brand-soft); border-radius: 18px; padding: 20px 22px; margin-bottom: 12px;
 }
-.goal-hero .g-name { font-family: 'Black Han Sans', sans-serif; font-size: 1.15rem; font-weight: 800; color: var(--brand-deep); }
-.goal-hero .g-sub { font-size: 0.82rem; color: var(--ink-soft); margin-top: 3px; font-family: 'IBM Plex Mono', monospace; }
+.goal-hero .g-name { font-family: 'Noto Sans KR', sans-serif; font-size: 1.1rem; font-weight: 800; color: var(--brand-deep); }
+.goal-hero .g-sub { font-size: 0.82rem; color: var(--ink-soft); margin-top: 3px; font-family: 'Space Grotesk', sans-serif; }
 
 .sv-card {
     background: var(--paper-2); border: 1px solid var(--line); border-radius: 16px;
-    padding: 18px 20px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(21,22,46,0.06);
+    padding: 18px 20px; margin-bottom: 14px; box-shadow: 0 1px 2px rgba(25,31,40,0.04);
 }
-.sv-card .sv-title { font-family: 'Black Han Sans', sans-serif; font-size: 1.02rem; font-weight: 800; color: var(--ink); }
-.sv-card .sv-sub { font-size: 0.75rem; color: var(--ink-soft); margin-top: 3px; margin-bottom: 10px; font-family:'IBM Plex Mono',monospace; }
-.sv-chip { display:inline-block; font-size: 0.68rem; padding: 2px 9px; border-radius: 999px; margin-left: 6px; font-family:'Gothic A1','Noto Sans KR'; }
-.sv-chip.done { background: var(--brand-soft); color: var(--brand-deep); border: 1px solid var(--brand); }
-.sv-chip.live { background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold); }
+.sv-card .sv-title { font-family: 'Noto Sans KR', sans-serif; font-size: 1rem; font-weight: 800; color: var(--ink); }
+.sv-card .sv-sub { font-size: 0.75rem; color: var(--ink-faint); margin-top: 3px; margin-bottom: 10px; font-family:'Space Grotesk',sans-serif; }
+.sv-chip { display:inline-block; font-size: 0.68rem; padding: 2px 9px; border-radius: 999px; margin-left: 6px; font-family:'Noto Sans KR',sans-serif; }
+.sv-chip.done { background: var(--brand-soft); color: var(--brand-deep); border: 1px solid var(--brand-soft); }
+.sv-chip.live { background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold-soft); }
 
-/* 쫓아가는 성장 진행 바 */
+/* 목표 진행 바 */
 .chase-wrap { margin: 10px 0 4px 0; }
-.chase-track { position: relative; height: 18px; background: #ECEAFB; border-radius: 999px;
+.chase-track { position: relative; height: 14px; background: var(--paper); border-radius: 999px;
     border: 1px solid var(--line); overflow: visible; }
-.chase-track.time { background-color: #EEF1FF;
-    background-image: repeating-linear-gradient(90deg, transparent 0 6px, rgba(62,123,250,0.16) 6px 9px); }
+.chase-track.time { background-color: var(--paper); }
 .chase-fill { position: absolute; left:0; top:0; bottom:0; border-radius: 999px; transition: width .7s ease; }
-.chase-runner { position: absolute; top: 50%; transform: translateY(-50%); font-size: 1.05rem;
-    filter: drop-shadow(0 1px 1px rgba(0,0,0,.25)); transition: left .7s ease; }
-.chase-labels { display:flex; justify-content: space-between; font-size: 0.7rem; color: var(--ink-soft);
-    margin-top: 5px; font-family: 'IBM Plex Mono', monospace; }
+.chase-runner { position: absolute; top: 50%; transform: translateY(-50%); font-size: 1rem;
+    transition: left .7s ease; }
+.chase-labels { display:flex; justify-content: space-between; font-size: 0.7rem; color: var(--ink-faint);
+    margin-top: 5px; font-family: 'Space Grotesk', sans-serif; }
 
 /* ── AI 코치: 코치의 메모 카드 ── */
 .coach-card {
-    position: relative; border-radius: 16px; padding: 28px 28px 24px 28px; margin-top: 10px;
+    position: relative; border-radius: 16px; padding: 26px 28px 24px 28px; margin-top: 14px;
     background: var(--paper-2); border: 1px solid var(--line);
-    box-shadow: 0 12px 26px -16px rgba(21,22,46,0.32);
+    box-shadow: 0 1px 2px rgba(25,31,40,0.04);
 }
 .coach-card::before {
-    content: "코치의 메모"; position: absolute; top: -12px; left: 26px;
-    background: var(--gold-soft); color: var(--gold); border: 1px solid #F7CE85;
-    font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; letter-spacing: 1px;
-    padding: 3px 10px; border-radius: 999px; transform: rotate(-2deg);
+    content: "코치의 메모"; position: absolute; top: -11px; left: 24px;
+    background: var(--paper-2); color: var(--brand-deep); border: 1px solid var(--brand-soft);
+    font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 1px;
+    padding: 3px 10px; border-radius: 999px;
 }
 .coach-hype {
-    font-family: 'Black Han Sans', sans-serif; font-weight: 800; font-size: 1.3rem; color: var(--brand-deep);
-    display: inline-block; border-bottom: 2px dashed var(--gold-soft); padding-bottom: 8px; margin-bottom: 10px;
+    font-family: 'Noto Sans KR', sans-serif; font-weight: 800; font-size: 1.2rem; color: var(--brand-deep);
+    display: block; margin-bottom: 10px;
 }
-.coach-summary { font-size: 1.05rem; font-weight: 700; color: var(--ink); margin-bottom: 10px; }
+.coach-summary { font-size: 1.02rem; font-weight: 700; color: var(--ink); margin-bottom: 10px; }
 .risk-chip { display:inline-block; padding: 3px 12px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; }
-.risk-low { background: var(--brand-soft); color: var(--brand-deep); border: 1px solid var(--brand); }
-.risk-mid { background: var(--gold-soft); color: var(--gold); border: 1px solid #F7CE85; }
-.risk-high{ background: var(--coral-soft); color: var(--coral); border: 1px solid #D9A99C; }
+.risk-low { background: var(--brand-soft); color: var(--brand-deep); border: 1px solid var(--brand-soft); }
+.risk-mid { background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold-soft); }
+.risk-high{ background: var(--coral-soft); color: var(--coral); border: 1px solid var(--coral-soft); }
 
 /* ── 리스크 체험관 ── */
 .rl-banner {
-    background: linear-gradient(135deg, #3B0A24, #220615); border: 1px solid var(--coral);
+    background: var(--coral-soft); border: 1px solid var(--coral-soft);
     border-radius: 16px; padding: 16px 20px; margin-bottom: 14px;
 }
-.rl-banner b { color: #FFD6E0; }
-.rl-banner span { color: #F2B8C6; font-size: 0.85rem; }
+.rl-banner b { color: #B0203D; }
+.rl-banner span { color: #C23A54; font-size: 0.85rem; }
 .chat-bubble {
     background: var(--paper-2); border: 1px solid var(--line); border-radius: 4px 16px 16px 16px;
-    padding: 14px 18px; margin: 6px 0 14px 0; box-shadow: 0 2px 6px rgba(21,22,46,0.07); position: relative;
+    padding: 14px 18px; margin: 6px 0 14px 0; box-shadow: 0 1px 2px rgba(25,31,40,0.04); position: relative;
 }
-.chat-bubble .cb-sender { font-family:'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--ink-soft); margin-bottom: 6px; }
+.chat-bubble .cb-sender { font-family:'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--ink-faint); margin-bottom: 6px; }
 .chat-bubble .cb-sender b { color: var(--ink); }
 .chat-bubble .cb-msg { font-size: 0.95rem; color: var(--ink); line-height: 1.55; }
 .scam-grade { display:inline-block; padding: 6px 16px; border-radius: 999px; font-weight: 800;
-    font-family: 'Black Han Sans', sans-serif; font-size: 1.05rem; margin-bottom: 6px; }
-.scam-grade.g-master { background: var(--brand-soft); color: var(--brand-deep); border: 1px solid var(--brand); }
-.scam-grade.g-good    { background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold); }
-.scam-grade.g-warn    { background: #FFE3E9; color: var(--coral); border: 1px solid var(--coral); }
-.scam-grade.g-danger  { background: #FFD9E1; color: #B0203D; border: 1px solid #B0203D; }
-.liq-banner { background: #FFD9E1; border: 1px solid #B0203D; color: #7A1130; border-radius: 12px;
+    font-family: 'Noto Sans KR', sans-serif; font-size: 1.05rem; margin-bottom: 6px; }
+.scam-grade.g-master { background: var(--brand-soft); color: var(--brand-deep); border: 1px solid var(--brand-soft); }
+.scam-grade.g-good    { background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold-soft); }
+.scam-grade.g-warn    { background: var(--coral-soft); color: var(--coral); border: 1px solid var(--coral-soft); }
+.scam-grade.g-danger  { background: #FFD9E1; color: #B0203D; border: 1px solid #F3A9B8; }
+.liq-banner { background: #FFD9E1; border: 1px solid #F3A9B8; color: #7A1130; border-radius: 12px;
     padding: 12px 16px; font-weight: 700; margin: 10px 0; }
 .persona-card { display:flex; align-items:center; gap:16px; background: var(--brand-soft);
-    border: 1px solid var(--brand); border-radius: 16px; padding: 16px 20px; margin: 10px 0 18px 0; }
+    border: 1px solid var(--brand-soft); border-radius: 16px; padding: 16px 20px; margin: 10px 0 18px 0; }
 .persona-card .persona-icon { font-size: 2.1rem; }
-.persona-card .persona-name { font-family:'Black Han Sans', sans-serif; font-weight: 800; color: var(--brand-deep); font-size: 1.05rem; }
+.persona-card .persona-name { font-family:'Noto Sans KR', sans-serif; font-weight: 800; color: var(--brand-deep); font-size: 1.05rem; }
 .persona-card .persona-desc { font-size: 0.82rem; color: var(--ink-soft); margin-top: 2px; }
 
 /* ── 이용 가이드 ── */
 .guide-hero {
-    background: linear-gradient(155deg, var(--brand-deep) 0%, #1C1140 62%, #120B2E 100%); color: #fff;
-    border-radius: 26px; padding: 28px 32px; margin-bottom: 18px; box-shadow: 0 20px 40px -18px rgba(75,50,195,0.5);
+    background: var(--brand); color: #fff;
+    border-radius: 20px; padding: 26px 30px; margin-bottom: 18px; box-shadow: 0 10px 24px -14px rgba(49,130,246,0.45);
 }
-.guide-hero h1 { color: #fff !important; margin: 0 0 6px 0; font-size: 1.5rem; }
-.guide-hero p { margin: 0; opacity: .85; font-size: 0.9rem; }
+.guide-hero h1 { color: #fff !important; margin: 0 0 6px 0; font-size: 1.4rem; }
+.guide-hero p { margin: 0; opacity: .88; font-size: 0.9rem; }
 .guide-step-num {
-    display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%;
-    background: var(--brand); color:#fff; font-weight:800; font-size:0.8rem; margin-right:8px; flex-shrink:0;
+    display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:50%;
+    background: var(--brand-soft); color:var(--brand-deep); font-weight:800; font-size:0.75rem; margin-right:8px; flex-shrink:0;
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   UI/UX 강화 패치 — Streamlit 기본 위젯을 "레벨업 게임 HUD" 톤에 맞춰 재단장
-   (기존 색상 변수·기존 커스텀 클래스는 그대로 재사용, 신규 규칙만 추가)
+   UI/UX 패치 — Streamlit 기본 위젯을 절제된 핀테크 톤으로 재단장
    ══════════════════════════════════════════════════════════════════ */
 
 /* 전체 진입 애니메이션 */
-.main .block-container { animation: ml-fade-in .45s ease-out; }
-@keyframes ml-fade-in { from { opacity: 0; transform: translateY(6px);} to { opacity: 1; transform: translateY(0);} }
+.main .block-container { animation: ml-fade-in .35s ease-out; }
+@keyframes ml-fade-in { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: translateY(0);} }
 
 /* 스크롤바 */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
@@ -330,46 +313,44 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'I
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--brand); }
 
-/* ── 탭 내비게이션: 게임 메뉴 세그먼트처럼 ── */
+/* ── 탭 내비게이션: 여백 중심 세그먼트 컨트롤 ── */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 4px; background: var(--paper-2); padding: 6px; border-radius: 14px;
-    border: 1px solid var(--line); box-shadow: inset 0 1px 2px rgba(21,22,46,0.05);
+    gap: 2px; background: var(--paper-2); padding: 5px; border-radius: 12px;
+    border: 1px solid var(--line);
     flex-wrap: wrap;
 }
 .stTabs [data-baseweb="tab"] {
-    height: auto; padding: 8px 16px; border-radius: 10px; background: transparent;
-    color: var(--ink-soft); font-family: 'Gothic A1','Noto Sans KR', sans-serif; font-weight: 600; font-size: 0.88rem;
+    height: auto; padding: 8px 16px; border-radius: 9px; background: transparent;
+    color: var(--ink-faint); font-family: 'Noto Sans KR', sans-serif; font-weight: 600; font-size: 0.87rem;
     transition: background .15s, color .15s;
 }
 .stTabs [data-baseweb="tab"]:hover { background: var(--brand-soft); color: var(--brand-deep); }
 .stTabs [aria-selected="true"] {
     background: var(--brand) !important; color: #fff !important;
-    box-shadow: 0 3px 0 var(--brand-deep);
 }
 .stTabs [data-baseweb="tab-highlight"] { display: none; }
 .stTabs [data-baseweb="tab-border"] { display: none; }
 .stTabs [data-baseweb="tab-panel"] { padding-top: 18px; }
 
-/* ── 버튼: 앱 액션 버튼 느낌 ── */
+/* ── 버튼 ── */
 .stButton > button {
     border: 1px solid var(--line) !important; background: var(--paper-2) !important;
-    color: var(--ink) !important; font-weight: 700 !important; font-family: 'Gothic A1','Noto Sans KR', sans-serif !important;
-    transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; padding: 0.5rem 1.1rem !important;
+    color: var(--ink) !important; font-weight: 700 !important; font-family: 'Noto Sans KR', sans-serif !important;
+    transition: border-color .12s ease, color .12s ease; padding: 0.5rem 1.1rem !important;
+    box-shadow: none !important;
 }
-.stButton > button:hover { border-color: var(--brand) !important; color: var(--brand-deep) !important; transform: translateY(-1px); }
-.stButton > button:active { transform: translateY(0); }
+.stButton > button:hover { border-color: var(--brand) !important; color: var(--brand-deep) !important; }
 .stButton > button[kind="primary"], .stButton > button[data-testid="baseButton-primary"] {
-    background: var(--brand) !important; border: 1px solid var(--brand-deep) !important; color: #fff !important;
-    box-shadow: 0 3px 0 var(--brand-deep) !important;
+    background: var(--brand) !important; border: 1px solid var(--brand) !important; color: #fff !important;
+    box-shadow: none !important;
 }
 .stButton > button[kind="primary"]:hover, .stButton > button[data-testid="baseButton-primary"]:hover {
-    color: #fff !important; filter: brightness(1.05); transform: translateY(-1px);
-    box-shadow: 0 4px 0 var(--brand-deep) !important;
+    background: var(--brand-deep) !important; color: #fff !important;
 }
-.stDownloadButton > button { border-radius: 10px !important; border: 1px dashed var(--gold) !important;
-    background: var(--gold-soft) !important; color: var(--gold) !important; font-weight: 700 !important; }
+.stDownloadButton > button { border-radius: 10px !important; border: 1px solid var(--brand-soft) !important;
+    background: var(--brand-soft) !important; color: var(--brand-deep) !important; font-weight: 700 !important; }
 
-/* ── 입력 위젯: 모던 폼 필드 ── */
+/* ── 입력 위젯 ── */
 div[data-baseweb="input"], div[data-baseweb="select"] > div, div[data-baseweb="textarea"] textarea {
     border-radius: 10px !important; border-color: var(--line) !important; background: var(--paper-2) !important;
 }
@@ -382,13 +363,13 @@ div[data-baseweb="input"]:focus-within, div[data-baseweb="select"]:focus-within 
 /* ── 라디오/체크박스: 선택 칩처럼 ── */
 div[role="radiogroup"] label, .stCheckbox label { border-radius: 10px !important; }
 div[role="radiogroup"] label:has(input:checked) {
-    background: var(--brand-soft); border: 1px solid var(--brand); border-radius: 10px; padding: 2px 8px;
+    background: var(--brand-soft); border: 1px solid var(--brand-soft); border-radius: 10px; padding: 2px 8px;
 }
 
 /* ── 폼 컨테이너 & 보더 컨테이너 ── */
 div[data-testid="stForm"] {
     background: var(--paper-2); border: 1px solid var(--line) !important; border-radius: 16px !important;
-    padding: 18px 20px !important; box-shadow: 0 4px 14px -10px rgba(21,22,46,0.28);
+    padding: 18px 20px !important; box-shadow: none;
 }
 div[data-testid="stVerticalBlockBorderWrapper"] > div[data-testid="stVerticalBlock"] {
     border-radius: 16px !important;
@@ -399,10 +380,10 @@ div[data-testid="stVerticalBlockBorderWrapper"] > div[data-testid="stVerticalBlo
 }
 [data-testid="stExpander"] summary { font-weight: 700 !important; color: var(--ink) !important; }
 
-/* ── 진행률 바: XP 게이지 채워지는 느낌 ── */
+/* ── 진행률 바 ── */
 div[data-testid="stProgress"] > div > div { background: var(--line) !important; border-radius: 999px !important; }
 div[data-testid="stProgress"] > div > div > div {
-    background: linear-gradient(90deg, var(--brand), #8F7BF5) !important; border-radius: 999px !important;
+    background: var(--brand) !important; border-radius: 999px !important;
 }
 
 /* ── 알림 박스 ── */
@@ -457,7 +438,7 @@ def net_worth_chart(user):
     fig.add_trace(go.Scatter(y=reals, mode="lines+markers", name="실제 자금",
                               line=dict(color=GAIN_COLOR, width=2.5), marker=dict(size=4)))
     fig.add_trace(go.Scatter(y=mocks, mode="lines+markers", name="모의투자",
-                              line=dict(color="#3E7BFA", width=2.5, dash="dot"), marker=dict(size=4)))
+                              line=dict(color="#364FC7", width=2.5, dash="dot"), marker=dict(size=4)))
     fig.update_layout(**PLOTLY_DARK, height=200, showlegend=True, legend=dict(font=dict(size=10)))
     fig.update_xaxes(showgrid=False, showticklabels=False)
     fig.update_yaxes(showgrid=False)
@@ -480,7 +461,7 @@ def mock_portfolio_donut(user, market):
     fig = go.Figure(go.Pie(
         labels=labels, values=values, hole=0.62,
         marker=dict(colors=PIE_COLORS),
-        textinfo="label+percent", textfont=dict(size=11, color="#15162E"),
+        textinfo="label+percent", textfont=dict(size=11, color="#191F28"),
     ))
     fig.update_layout(**PLOTLY_DARK, height=280, showlegend=False)
     return fig
@@ -501,7 +482,7 @@ def real_asset_donut(user):
     fig = go.Figure(go.Pie(
         labels=labels, values=values, hole=0.62,
         marker=dict(colors=PIE_COLORS),
-        textinfo="label+percent", textfont=dict(size=11, color="#15162E"),
+        textinfo="label+percent", textfont=dict(size=11, color="#191F28"),
     ))
     fig.update_layout(**PLOTLY_DARK, height=280, showlegend=False)
     return fig
@@ -532,11 +513,11 @@ def chase_bar(pct, left_label, right_label, theme="growth"):
         left_pos = "calc(100% - 20px)"
 
     if theme == "time":
-        color_from, color_to = "#5D8CFF", "#2A3363"
+        color_from, color_to = "#94A3C4", "#4E5968"
         runner = "🏁" if pct >= 1.0 else "🚶"
         track_cls = "chase-track time"
     else:
-        color_from, color_to = "#8F7BF5", "#4B32C3"
+        color_from, color_to = "#8FBBFF", "#3182F6"
         if pct >= 1.0:
             runner = "🌳"
         elif pct >= 0.6:
@@ -875,11 +856,11 @@ def render_expense(user):
         for t in tx[:15]:
             is_income = t.get("kind") == "income"
             if is_income:
-                c = INCOME_CAT_BY_ID.get(t.get("category"), {"icon": "💵", "name": "수입", "color": "#6C4CF1"})
-                sign, accent = "+", "#6C4CF1"
+                c = INCOME_CAT_BY_ID.get(t.get("category"), {"icon": "💵", "name": "수입", "color": "#3182F6"})
+                sign, accent = "+", "#3182F6"
             else:
                 c = CAT_BY_ID[t["category"]]
-                sign, accent = "-", c.get("color", "#FF4D6D")
+                sign, accent = "-", c.get("color", "#F04452")
             row_l, row_r = st.columns([6, 1])
             with row_l:
                 st.markdown(f"""
@@ -1109,7 +1090,7 @@ def render_onboarding(user):
             alloc = rp.get("recommended_allocation", {})
             if alloc:
                 fig = go.Figure(go.Pie(labels=list(alloc.keys()), values=list(alloc.values()), hole=0.55,
-                                        marker=dict(colors=["#8B6EF5", "#16C79A", "#F5A524"])))
+                                        marker=dict(colors=["#3182F6", "#4E5968", "#F5A524"])))
                 fig.update_layout(**PLOTLY_DARK, height=260, showlegend=True)
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
             if rp.get("caution"):
@@ -1360,7 +1341,7 @@ def render_leverage_lab(user):
     if result:
         fig = go.Figure()
         fig.add_trace(go.Scatter(y=result["equity_base"], mode="lines", name="레버리지 없음 (1배)",
-                                  line=dict(color="#3E7BFA", width=2, dash="dot")))
+                                  line=dict(color="#364FC7", width=2, dash="dot")))
         fig.add_trace(go.Scatter(y=result["equity_lev"], mode="lines", name=f"{result['leverage']}배 레버리지",
                                   line=dict(color=DOWN_COLOR if result["liquidated"] else UP_COLOR, width=2.6)))
         fig.update_layout(**PLOTLY_DARK, height=280, showlegend=True, legend=dict(font=dict(size=11)))
@@ -1426,7 +1407,7 @@ def render_crisis_lab(user):
         fig2 = go.Figure()
         baseline_curve = [(1_000_000 / path[0]) * v for v in path]
         fig2.add_trace(go.Scatter(y=baseline_curve, mode="lines", name="계속 보유(Buy & Hold)",
-                                   line=dict(color="#3E7BFA", width=2, dash="dot")))
+                                   line=dict(color="#364FC7", width=2, dash="dot")))
         fig2.add_trace(go.Scatter(y=result["user_curve"], mode="lines", name="내 선택대로",
                                    line=dict(color=GAIN_COLOR if result["final_value"] >= result["principal"] else LOSS_COLOR, width=2.6)))
         fig2.update_layout(**PLOTLY_DARK, height=260, showlegend=True, legend=dict(font=dict(size=11)))
@@ -1487,9 +1468,9 @@ def render_retirement(user, age: int):
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(y=result["curve"], mode="lines", name="예상 자산 곡선",
-                              line=dict(color="#6C4CF1", width=2.6), fill="tozeroy", fillcolor="rgba(108,76,241,0.10)"))
-    fig.add_hline(y=result["needed_corpus"], line_dash="dash", line_color="#FF4D6D",
-                  annotation_text="목표 노후자금", annotation_font_color="#FF4D6D")
+                              line=dict(color="#3182F6", width=2.6), fill="tozeroy", fillcolor="rgba(49,130,246,0.10)"))
+    fig.add_hline(y=result["needed_corpus"], line_dash="dash", line_color="#F04452",
+                  annotation_text="목표 노후자금", annotation_font_color="#F04452")
     fig.update_layout(**PLOTLY_DARK, height=300, showlegend=False)
     fig.update_xaxes(title="개월 수", showgrid=False)
     fig.update_yaxes(title="자산(원)", showgrid=False)
@@ -1528,27 +1509,27 @@ def build_report_card_html(user, market, display_name: str = "회원") -> str:
 <html lang="ko"><head><meta charset="utf-8">
 <title>{name}님의 머니레벨업 리포트 카드</title>
 <style>
-  body {{ margin:0; padding:40px; background:#F3F2FF; font-family:'Gothic A1','Noto Sans KR',sans-serif; }}
-  .card {{ max-width:640px; margin:0 auto; background:#FFFFFF; border:1px solid #E7E5F5; border-radius:22px;
-           padding:34px 38px; box-shadow:0 18px 40px -20px rgba(75,50,195,0.30); }}
-  .hd {{ background:linear-gradient(155deg,#4B32C3,#1C1140 60%,#120B2E); color:#fff; border-radius:16px;
+  body {{ margin:0; padding:40px; background:#F2F4F6; font-family:'Noto Sans KR',sans-serif; }}
+  .card {{ max-width:640px; margin:0 auto; background:#FFFFFF; border:1px solid #E5E8EB; border-radius:20px;
+           padding:34px 38px; box-shadow:0 1px 2px rgba(25,31,40,0.04); }}
+  .hd {{ background:#3182F6; color:#fff; border-radius:16px;
          padding:22px 26px; margin-bottom:22px; }}
-  .hd h1 {{ font-family:'Black Han Sans',sans-serif; margin:0 0 4px 0; font-size:1.5rem; }}
-  .hd p {{ margin:0; opacity:.8; font-size:.85rem; }}
+  .hd h1 {{ font-family:'Noto Sans KR',sans-serif; font-weight:800; margin:0 0 4px 0; font-size:1.4rem; }}
+  .hd p {{ margin:0; opacity:.85; font-size:.85rem; }}
   .row {{ display:flex; gap:14px; margin-bottom:16px; flex-wrap:wrap; }}
-  .stat {{ flex:1; min-width:130px; background:#F3F2FF; border:1px solid #E7E5F5; border-radius:14px; padding:14px 16px; }}
-  .stat .k {{ font-size:.72rem; color:#6B6C8A; margin-bottom:4px; }}
-  .stat .v {{ font-family:'Black Han Sans',sans-serif; font-size:1.25rem; color:#15162E; font-weight:700; }}
+  .stat {{ flex:1; min-width:130px; background:#F2F4F6; border:1px solid #E5E8EB; border-radius:14px; padding:14px 16px; }}
+  .stat .k {{ font-size:.72rem; color:#4E5968; margin-bottom:4px; }}
+  .stat .v {{ font-family:'Noto Sans KR',sans-serif; font-size:1.2rem; color:#191F28; font-weight:800; }}
   .section {{ margin-top:22px; }}
-  .section h2 {{ font-family:'Black Han Sans',sans-serif; font-size:1.05rem; color:#15162E; border-bottom:2px solid #6C4CF1;
+  .section h2 {{ font-family:'Noto Sans KR',sans-serif; font-weight:800; font-size:1.02rem; color:#191F28; border-bottom:2px solid #3182F6;
                  display:inline-block; padding-bottom:3px; margin-bottom:12px; }}
-  .persona {{ display:flex; align-items:center; gap:14px; background:#EFEAFE; border:1px solid #6C4CF1;
+  .persona {{ display:flex; align-items:center; gap:14px; background:#E8F3FF; border:1px solid #E8F3FF;
               border-radius:14px; padding:14px 18px; }}
   .persona .icon {{ font-size:2rem; }}
-  .persona .name {{ font-weight:800; color:#4B32C3; font-size:1.05rem; }}
-  .persona .desc {{ font-size:.82rem; color:#6B6C8A; margin-top:2px; }}
-  .footer {{ margin-top:26px; text-align:center; font-size:.72rem; color:#6B6C8A; }}
-  .grade {{ display:inline-block; padding:4px 14px; border-radius:999px; font-weight:800; background:#FFF4E0; color:#F5A524; border:1px solid #F5A524; }}
+  .persona .name {{ font-weight:800; color:#1B64DA; font-size:1.05rem; }}
+  .persona .desc {{ font-size:.82rem; color:#4E5968; margin-top:2px; }}
+  .footer {{ margin-top:26px; text-align:center; font-size:.72rem; color:#4E5968; }}
+  .grade {{ display:inline-block; padding:4px 14px; border-radius:999px; font-weight:800; background:#FFF4E0; color:#F5A524; border:1px solid #FFF4E0; }}
 </style></head>
 <body>
   <div class="card">
