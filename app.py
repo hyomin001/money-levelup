@@ -431,10 +431,39 @@ a, a:visited { color: var(--brand-deep) !important; }
 .stat-box.primary .stat-label { color: rgba(255,255,255,0.82); }
 .stat-box.primary .stat-value { color: #fff; }
 .stat-box.primary .stat-foot { color: rgba(255,255,255,0.78); }
+.stat-box.mock {
+    background: var(--gold-soft); border: 1px solid #F5E3BC;
+}
+.stat-box.mock .stat-label { color: #B36B00; }
+.stat-box.mock .stat-value { color: #8A5A00; }
+.stat-box.mock .stat-foot { color: #B36B00; opacity: .85; }
+.stat-grid-2 { grid-template-columns: 1fr 1fr; }
+.tag-real, .tag-mock {
+    display:inline-block; font-size: 0.66rem; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+    margin-left: 6px; vertical-align: middle; font-family: 'Noto Sans KR', sans-serif;
+}
+.stat-box.primary .tag-real { background: rgba(255,255,255,0.22); color: #fff; }
+.stat-box.mock .tag-mock { background: rgba(179,107,0,0.14); color: #B36B00; }
 @media (max-width: 900px) {
     .stat-grid { grid-template-columns: 1fr 1fr; }
+    .stat-grid-2 { grid-template-columns: 1fr; }
     .stat-box.primary { grid-column: 1 / -1; }
 }
+
+/* 보유 종목 리스트 (모의투자) */
+.holding-card { display:flex; flex-direction:column; }
+.holding-row { display:flex; align-items:center; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+.holding-row:last-child { border-bottom: none; padding-bottom: 2px; }
+.hold-icon { width: 38px; height: 38px; border-radius: 50%; background: var(--paper); display:flex; align-items:center; justify-content:center; font-size: 1.1rem; flex-shrink:0; }
+.hold-main { flex: 1; min-width: 0; }
+.hold-title { font-size: 0.88rem; font-weight: 700; color: var(--ink); }
+.hold-sub { font-size: 0.72rem; color: var(--ink-faint); margin-top: 2px; }
+.hold-right { text-align: right; flex-shrink: 0; }
+.hold-value { font-family:'Space Grotesk',sans-serif; font-weight: 700; font-size: 0.88rem; color: var(--ink); }
+.hold-pnl { font-size: 0.74rem; font-weight: 700; margin-top: 2px; font-family:'Space Grotesk',sans-serif; }
+.hold-pnl.up { color: var(--coral); }
+.hold-pnl.down { color: var(--navy); }
+.hold-pnl.flat { color: var(--ink-faint); }
 
 /* 카드 안 소제목 */
 .card-head { font-size: 0.95rem; font-weight: 800; color: var(--ink); margin-bottom: 12px; display:flex; align-items:center; gap:6px; }
@@ -685,14 +714,13 @@ TIPS = [
 def render_dashboard(user, market, display_name: str = "회원"):
     real_nw = real_net_worth(user)
     mock_val = mock_total_value(user, market)
-    total_assets = real_nw + mock_val
+    invest_val = mock_portfolio_value(user, market)
 
     month_start = time.mktime(time.strptime(time.strftime("%Y-%m-01"), "%Y-%m-%d"))
     month_expense = sum(t["amount"] for t in user["tx_log"]
                          if t.get("kind") == "expense" and t.get("ts", 0) >= month_start)
     fh = financial_health_score(user, market)
     level, pct, next_ceil = xp_progress(user["xp"])
-    delta_score = fh["score"] - 50  # 중간(50점) 대비 상승/하강 뱃지 텍스트용
 
     # ── 인사 헤더 ──
     st.markdown(f"""<div class="db-greet">
@@ -703,13 +731,21 @@ def render_dashboard(user, market, display_name: str = "회원"):
         <span class="level-badge">⭐ Lv.{level} · {fh['grade']}등급</span>
         </div>""", unsafe_allow_html=True)
 
-    # ── 총자산 / 이번달 지출 / 재무 건강 점수 ──
-    st.markdown(f"""<div class="stat-grid">
+    # ── 실제 자산 / 모의투자 (완전히 분리해서 표시 — 헷갈리지 않도록) ──
+    st.markdown(f"""<div class="stat-grid stat-grid-2">
         <div class="stat-box primary">
-            <div class="stat-label">총자산</div>
-            <div class="stat-value">{format_korean_money(total_assets)}</div>
-            <div class="stat-foot">실제 {format_korean_money(real_nw)} · 모의 {format_korean_money(mock_val)}</div>
+            <div class="stat-label">💰 실제 자산 <span class="tag-real">내가 입력한 진짜 돈</span></div>
+            <div class="stat-value">{format_korean_money(real_nw)}</div>
+            <div class="stat-foot">지갑 {format_korean_money(user.get('real_cash', 0))} · 저축 {format_korean_money(total_saving_amount(user))}</div>
         </div>
+        <div class="stat-box mock">
+            <div class="stat-label">🧪 모의투자 <span class="tag-mock">연습용 가상 시드머니</span></div>
+            <div class="stat-value">{format_korean_money(mock_val)}</div>
+            <div class="stat-foot">모의 현금 {format_korean_money(user.get('mock_cash', 0))} · 투자평가액 {format_korean_money(invest_val)}</div>
+        </div>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown(f"""<div class="stat-grid stat-grid-2">
         <div class="stat-box">
             <div class="stat-label">이번 달 지출</div>
             <div class="stat-value">{format_korean_money(month_expense)}</div>
@@ -718,29 +754,67 @@ def render_dashboard(user, market, display_name: str = "회원"):
         <div class="stat-box">
             <div class="stat-label">재무 건강 점수</div>
             <div class="stat-value">{fh['score']}<span class="stat-unit"> / 100</span></div>
-            <div class="stat-foot">{'▲' if delta_score >= 0 else '▼'} {fh['comment']}</div>
+            <div class="stat-foot">{fh['comment']}</div>
         </div>
         </div>""", unsafe_allow_html=True)
 
-    # ── 자산 배분 / 순자산 추이 ──
-    col_pie, col_line = st.columns([1, 1])
-    with col_pie:
+    # ── 자산 배분: 실제 자산 vs 모의투자 (도넛도 분리) ──
+    col_pie1, col_pie2 = st.columns([1, 1])
+    with col_pie1:
         with st.container(border=True):
-            st.markdown('<div class="card-head">🧭 자산 배분</div>', unsafe_allow_html=True)
-            fig_alloc = combined_asset_donut(user, market)
-            if fig_alloc:
-                st.plotly_chart(fig_alloc, use_container_width=True, config={"displayModeBar": False})
+            st.markdown('<div class="card-head">💰 실제 자산 배분</div>', unsafe_allow_html=True)
+            fig_real = real_asset_donut(user)
+            if fig_real:
+                st.plotly_chart(fig_real, use_container_width=True, config={"displayModeBar": False})
             else:
-                st.caption("자산이 쌓이면 배분 현황을 보여드려요.")
-    with col_line:
+                st.caption("지갑에 돈을 채우거나 저축을 시작하면 표시돼요.")
+    with col_pie2:
         with st.container(border=True):
-            st.markdown('<div class="card-head">📈 순자산 추이</div>', unsafe_allow_html=True)
-            nw_fig = net_worth_chart(user)
-            if nw_fig:
-                st.plotly_chart(nw_fig, use_container_width=True, config={"displayModeBar": False})
-                st.caption("초록(빨강)=실제 자금 · 파랑=모의투자 (세션 내 기록 기준)")
+            st.markdown('<div class="card-head">🧪 모의투자 배분</div>', unsafe_allow_html=True)
+            fig_mock = mock_portfolio_donut(user, market)
+            if fig_mock:
+                st.plotly_chart(fig_mock, use_container_width=True, config={"displayModeBar": False})
             else:
-                st.caption("기록이 쌓이면 순자산 추이를 보여드려요.")
+                st.caption("모의투자를 시작하면 표시돼요.")
+
+    # ── 보유 종목 (모의투자) — 어떤 종목을 얼마에 샀고 수익률이 어떤지 항상 볼 수 있게 ──
+    with st.container(border=True):
+        st.markdown('<div class="card-head">📊 보유 종목 (모의투자)</div>', unsafe_allow_html=True)
+        held = [(aid, pos) for aid, pos in user.get("portfolio", {}).items() if pos.get("qty", 0) > 0]
+        if held:
+            rows_html = []
+            for aid, pos in held:
+                a = ASSET_BY_ID[aid]
+                cur = market["prices"].get(aid, 0)
+                val = pos["qty"] * cur
+                pnl = (cur - pos["avg_price"]) * pos["qty"]
+                pnl_pct = (cur / pos["avg_price"] - 1) * 100 if pos["avg_price"] else 0
+                cls = "up" if pnl > 0 else ("down" if pnl < 0 else "flat")
+                sign = "+" if pnl > 0 else ""
+                rows_html.append(f"""<div class="holding-row">
+                    <div class="hold-icon">{a['icon']}</div>
+                    <div class="hold-main">
+                        <div class="hold-title">{html.escape(a['name'])}</div>
+                        <div class="hold-sub">{pos['qty']}주 · 평단 {format_korean_money(pos['avg_price'])} · 현재가 {format_korean_money(cur)}</div>
+                    </div>
+                    <div class="hold-right">
+                        <div class="hold-value">{format_korean_money(val)}</div>
+                        <div class="hold-pnl {cls}">{sign}{format_korean_money(pnl)} ({sign}{pnl_pct:.1f}%)</div>
+                    </div>
+                    </div>""")
+            st.markdown(f'<div class="holding-card">{"".join(rows_html)}</div>', unsafe_allow_html=True)
+        else:
+            st.caption("아직 보유 종목이 없어요. '모의투자' 탭에서 관심 있는 종목을 사보세요.")
+
+    # ── 순자산 추이 ──
+    with st.container(border=True):
+        st.markdown('<div class="card-head">📈 순자산 추이</div>', unsafe_allow_html=True)
+        nw_fig = net_worth_chart(user)
+        if nw_fig:
+            st.plotly_chart(nw_fig, use_container_width=True, config={"displayModeBar": False})
+            st.caption("빨강=실제 자금 · 파랑 점선=모의투자 (세션 내 기록 기준)")
+        else:
+            st.caption("기록이 쌓이면 순자산 추이를 보여드려요.")
 
     # ── 최근 내역 ──
     with st.container(border=True):
@@ -767,30 +841,10 @@ def render_dashboard(user, market, display_name: str = "회원"):
     tip = TIPS[int(time.strftime("%j")) % len(TIPS)]
     st.info(tip)
 
-    # ── 보유 포트폴리오 (모의투자) ──
-    if user.get("portfolio") and any(pos.get("qty", 0) > 0 for pos in user["portfolio"].values()):
-        with st.container(border=True):
-            st.markdown('<div class="card-head">📊 보유 포트폴리오 (모의투자)</div>', unsafe_allow_html=True)
-            rows = []
-            for aid, pos in user["portfolio"].items():
-                if pos.get("qty", 0) <= 0:
-                    continue
-                a = ASSET_BY_ID[aid]
-                cur = market["prices"].get(aid, 0)
-                val = pos["qty"] * cur
-                pnl = (cur - pos["avg_price"]) * pos["qty"]
-                pnl_pct = (cur / pos["avg_price"] - 1) * 100 if pos["avg_price"] else 0
-                rows.append({"자산": f"{a['icon']} {a['name']}", "수량": pos["qty"],
-                             "평단가": format_korean_money(pos["avg_price"]),
-                             "현재가": format_korean_money(cur),
-                             "평가액": format_korean_money(val),
-                             "손익": f"{format_korean_money(pnl)} ({pnl_pct:+.1f}%)"})
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
     # ── 획득 뱃지 스트립 ──
     earned = [b for b in BADGES if b["id"] in user.get("badges", [])]
     g = goal_progress(user)
-    n_held = len([1 for pos in user.get("portfolio", {}).values() if pos.get("qty", 0) > 0])
+    n_held = len(held)
     chips = []
     if earned:
         for b in earned[-3:][::-1]:
