@@ -712,7 +712,7 @@ def render_orderbook(asset_id, market):
         rows.append(f"""<div class="ob-row bid"><div class="ob-bar" style="width:{w}%;"></div>
             <span>{lvl['price']:,}</span><span>{lvl['qty']:,}주</span></div>""")
     st.markdown(f'<div class="ob-wrap">{"".join(rows)}</div>'
-                f'<div class="ob-caption">모의 호가창 · 시세 갱신마다(약 15초) 새로 생성됩니다</div>',
+                f'<div class="ob-caption">모의 호가창 · 시세 갱신마다(약 10초) 새로 생성됩니다</div>',
                 unsafe_allow_html=True)
 
 
@@ -898,7 +898,7 @@ def render_dashboard(user, market, display_name: str = "회원"):
 
 # ── 모의투자 ──────────────────────────────────────────────────────────────
 def render_invest(user, market):
-    st.caption("⚠️ 실제 시세가 아닌 랜덤워크+뉴스 이벤트 기반 가상 시뮬레이션입니다. (약 15초마다 갱신)")
+    st.caption("⚠️ 실제 시세가 아닌 랜덤워크+뉴스 이벤트 기반 가상 시뮬레이션입니다. (약 10초마다 갱신 · 뉴스가 뜨면 그 다음 시세 갱신부터 반영돼요)")
     st.info(f"🧪 모의투자 잔고: **{format_korean_money(user['mock_cash'])}** — 실제 자금과 완전히 분리된 연습용 가상 머니예요.")
 
     if "invest_selected_asset" not in st.session_state:
@@ -1905,7 +1905,7 @@ def main():
         render_signup_gate()
         return
 
-    st_autorefresh(interval=15_000, key="market_tick")
+    st_autorefresh(interval=10_000, key="market_tick")
 
     profile = st.session_state.profile
     uid = profile["uid"]

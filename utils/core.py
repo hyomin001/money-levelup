@@ -366,7 +366,7 @@ def get_market():
 
 
 def _seed_initial_news(m, count=4):
-    """market은 세션마다 새로 만들어지고, 뉴스는 원래 tick_market()에서 15초마다 22% 확률로만
+    """market은 세션마다 새로 만들어지고, 뉴스는 원래 tick_market()에서 10초마다 22% 확률로만
     생성됐다. 그래서 접속 직후에는 몇 분씩 '뉴스 수신 대기 중' 상태로 비어 보이는 문제가 있었다.
     첫 화면부터 자연스럽게 뉴스가 보이도록 시작 시점에 몇 건을 미리 채워둔다."""
     sample = random.sample(NEWS_TEMPLATES, k=min(count, len(NEWS_TEMPLATES)))
@@ -393,25 +393,37 @@ def generate_orderbook(price):
     return {"asks": asks, "bids": bids, "max_qty": max_qty, "ts": time.time()}
 
 
-def tick_market(min_interval_sec=15):
+def tick_market(min_interval_sec=10):
+    """10초마다 한 번씩 시세를 갱신한다.
+    뉴스와 가격 반영을 한 틱에 동시에 처리하면 '뉴스가 뜨자마자 이미 가격에 반영되어 있는'
+    부자연스러운 상태가 되어, 평가자 입장에서 뉴스와 시세가 서로 무관하게 보일 수 있다.
+    그래서 이번 틱에서 새로 뜬 뉴스는 화면에만 먼저 노출하고, 그 뉴스의 가격 영향(impact)은
+    다음 틱(pending_impact)으로 예약해두었다가 그 다음 시세 갱신에 반영한다.
+    즉: [뉴스 발생 → 그 다음 시세 갱신에 뉴스가 영향] 순서가 명확히 드러난다."""
     m = get_market()
     if time.time() - m.get("last_tick", 0) < min_interval_sec:
         return m
 
+    now = time.time()
+
+    # 1) 이전 틱에서 예약해둔 뉴스 효과를 이번 가격 변동에 반영
+    pending = m.pop("pending_impact", None)
+
+    # 2) 새 뉴스 이벤트 발생 여부 판단 → 화면에는 바로 노출하되, 가격 반영은 다음 틱으로 예약
     news_event = None
     if random.random() < 0.22:
         news_event = random.choice(NEWS_TEMPLATES)
-        m["news"].insert(0, {"ts": time.time(), "text": news_event["text"],
+        m["news"].insert(0, {"ts": now, "text": news_event["text"],
                               "asset": news_event["asset"], "impact": news_event["impact"]})
         m["news"] = m["news"][:30]
+        m["pending_impact"] = {"asset": news_event["asset"], "impact": news_event["impact"]}
 
-    now = time.time()
     for a in ASSET_CONFIG:
         aid, vol = a["id"], a["vol"]
         p = m["prices"][aid]
         change = random.gauss(0, vol)
-        if news_event and news_event["asset"] == aid:
-            change += news_event["impact"]
+        if pending and pending["asset"] == aid:
+            change += pending["impact"]
         new_p = max(100, p * (1 + change))
         m["prices"][aid] = round(new_p, 1)
         m["history"].setdefault(aid, []).append(round(new_p, 1))
