@@ -3,6 +3,7 @@
 # 데모용 단순 저장소입니다. (같은 이름+출생연도를 쓰는 사람과 데이터가 겹칠 수 있음 — 데모 목적상 허용)
 # secrets에 MONGO_URI가 없으면 DB 없이도 앱은 정상 동작하고, 이 경우 세션이 끝나면 데이터가 초기화됩니다.
 import logging
+import time
 import streamlit as st
 from pymongo import MongoClient
 
@@ -10,16 +11,28 @@ DB_NAME = "money_levelup"
 
 
 @st.cache_resource
+def _connect_mongo(uri: str):
+    """연결에 성공했을 때만 캐싱한다. (실패를 캐싱하면 그 뒤로는 재시도 없이 계속 실패 취급된다)"""
+    client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+    client.admin.command("ping")  # 연결 즉시 확인
+    return client
+
+
 def get_mongo_client():
+    """일시적인 네트워크 문제로 첫 연결이 실패해도, 이후 요청에서 다시 시도할 수 있도록 한다.
+    (기존에는 @st.cache_resource가 실패(None)까지 영구 캐싱해서, 앱이 켜져 있는 동안 한 번이라도
+    연결에 실패하면 그 뒤 모든 사용자의 데이터가 계속 세션에만 저장되는 문제가 있었다.)"""
     uri = st.secrets.get("MONGO_URI", None)
     if not uri:
         return None
+    cache = st.session_state.setdefault("_mongo_retry", {"failed_at": 0})
+    if cache["failed_at"] and time.time() - cache["failed_at"] < 30:
+        return None
     try:
-        client = MongoClient(uri, serverSelectionTimeoutMS=5000)
-        client.admin.command("ping")  # 연결 즉시 확인 (실패 시 아래에서 None 처리)
-        return client
+        return _connect_mongo(uri)
     except Exception as e:
         logging.error(f"[get_mongo_client] 연결 실패: {e}")
+        cache["failed_at"] = time.time()
         return None
 
 

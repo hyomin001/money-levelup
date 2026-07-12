@@ -361,7 +361,20 @@ def get_market():
             "news": [],
         }
         _refresh_orderbooks(st.session_state.market)
+        _seed_initial_news(st.session_state.market)
     return st.session_state.market
+
+
+def _seed_initial_news(m, count=4):
+    """market은 세션마다 새로 만들어지고, 뉴스는 원래 tick_market()에서 15초마다 22% 확률로만
+    생성됐다. 그래서 접속 직후에는 몇 분씩 '뉴스 수신 대기 중' 상태로 비어 보이는 문제가 있었다.
+    첫 화면부터 자연스럽게 뉴스가 보이도록 시작 시점에 몇 건을 미리 채워둔다."""
+    sample = random.sample(NEWS_TEMPLATES, k=min(count, len(NEWS_TEMPLATES)))
+    now = time.time()
+    for i, news_event in enumerate(sample):
+        # 최근 것부터 최대 몇 분 전 발생한 것처럼 타임스탬프를 살짝 과거로 흩어준다.
+        m["news"].append({"ts": now - i * 47, "text": news_event["text"],
+                           "asset": news_event["asset"], "impact": news_event["impact"]})
 
 
 def _refresh_orderbooks(m):
