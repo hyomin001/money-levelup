@@ -145,6 +145,23 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'S
 .up   { color: var(--coral) !important; font-family: 'IBM Plex Mono', monospace; }
 .down { color: var(--navy) !important; font-family: 'IBM Plex Mono', monospace; }
 
+/* 클릭해서 종목을 고를 수 있는 카드형 버튼 (모의투자 상단 시세 카드) */
+.asset-card-btn { margin-bottom: 6px; }
+.asset-card-btn .stButton { margin: 0; }
+.asset-card-btn button {
+    background: var(--paper-2) !important; border: 1px solid var(--line) !important;
+    border-radius: 12px !important; padding: 10px 12px !important; height: auto !important;
+    white-space: pre-line !important; text-align: left !important; line-height: 1.5 !important;
+    color: var(--ink) !important; font-weight: 400 !important; box-shadow: none !important;
+    transition: border-color .2s, transform .15s !important;
+}
+.asset-card-btn button:hover { border-color: var(--brand) !important; transform: translateY(-1px); }
+.asset-card-btn button p { white-space: pre-line !important; font-size: 0.85rem !important; }
+.asset-card-btn.selected button {
+    border: 1.5px solid var(--brand) !important; background: var(--brand-soft) !important;
+    box-shadow: 0 0 0 1px var(--brand) inset !important;
+}
+
 /* 뉴스 카드 */
 .news-item { border-left: 3px solid var(--brand); padding: 6px 12px; margin-bottom: 6px;
     background: var(--paper-2); border: 1px solid var(--line); border-left-width: 3px; border-radius: 0 8px 8px 0; }
@@ -884,6 +901,9 @@ def render_invest(user, market):
     st.caption("⚠️ 실제 시세가 아닌 랜덤워크+뉴스 이벤트 기반 가상 시뮬레이션입니다. (약 15초마다 갱신)")
     st.info(f"🧪 모의투자 잔고: **{format_korean_money(user['mock_cash'])}** — 실제 자금과 완전히 분리된 연습용 가상 머니예요.")
 
+    if "invest_selected_asset" not in st.session_state:
+        st.session_state.invest_selected_asset = ASSET_CONFIG[0]["id"]
+
     cols = st.columns(4)
     for i, a in enumerate(ASSET_CONFIG):
         with cols[i % 4]:
@@ -892,15 +912,24 @@ def render_invest(user, market):
             chg = (price - hist[0]) / hist[0] * 100 if hist[0] else 0
             cls = "up" if chg >= 0 else "down"
             arrow = "▲" if chg >= 0 else "▼"
-            st.markdown(f"""<div class="asset-card">
-                <div class="a-name">{a['icon']} {a['name']}</div>
-                <div class="a-price">{format_korean_money(price)}</div>
-                <div class="{cls}">{arrow} {chg:+.2f}%</div>
-                </div>""", unsafe_allow_html=True)
+            active = st.session_state.invest_selected_asset == a["id"]
+            st.markdown(f'<div class="asset-card-btn {"selected" if active else ""}">', unsafe_allow_html=True)
+            clicked = st.button(
+                f"{a['icon']} {a['name']}\n{format_korean_money(price)}\n{arrow} {chg:+.2f}%",
+                key=f"asset_card_{a['id']}", use_container_width=True,
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+            if clicked:
+                st.session_state.invest_selected_asset = a["id"]
+                st.rerun()
 
     st.divider()
-    asset_id = st.selectbox("🔎 종목 선택", [a["id"] for a in ASSET_CONFIG],
+    _asset_ids = [a["id"] for a in ASSET_CONFIG]
+    _default_idx = _asset_ids.index(st.session_state.invest_selected_asset)
+    asset_id = st.selectbox("🔎 종목 선택", _asset_ids, index=_default_idx,
                              format_func=lambda x: f"{ASSET_BY_ID[x]['icon']} {ASSET_BY_ID[x]['name']} ({ASSET_BY_ID[x]['type']})")
+    if asset_id != st.session_state.invest_selected_asset:
+        st.session_state.invest_selected_asset = asset_id
     price = market["prices"][asset_id]
 
     c_chart, c_ob, c_trade = st.columns([2.4, 1.6, 1.7])
