@@ -667,8 +667,7 @@ def chase_bar(pct, left_label, right_label, theme="growth"):
             runner = "🌰"
         track_cls = "chase-track"
 
-    st.markdown(f"""
-        <div class="chase-wrap">
+    st.markdown(f"""<div class="chase-wrap">
             <div class="{track_cls}">
                 <div class="chase-fill" style="width:{pct*100:.1f}%; background:linear-gradient(90deg,{color_from},{color_to});"></div>
                 <div class="chase-runner" style="left:{left_pos};">{runner}</div>
@@ -1005,6 +1004,8 @@ def render_expense(user):
             if st.button("💾 기록하기", type="primary", use_container_width=True):
                 if amount <= 0:
                     st.error("금액을 확인해주세요.")
+                elif amount > user.get("real_cash", 0):
+                    st.error("지갑 잔액이 부족합니다. 가계부 탭에서 수입을 먼저 추가하거나 지갑 잔액을 조정해주세요.")
                 else:
                     user["real_cash"] = user.get("real_cash", 0) - amount
                     log_tx(user, {"kind": "expense", "category": sel["id"], "amount": amount, "memo": memo})
@@ -1050,8 +1051,7 @@ def render_expense(user):
                 sign, accent = "-", c.get("color", "#F04452")
             row_l, row_r = st.columns([6, 1])
             with row_l:
-                st.markdown(f"""
-                    <div class="exp-card" style="--accent:{accent}">
+                st.markdown(f"""<div class="exp-card" style="--accent:{accent}">
                         <div class="exp-icon">{c['icon']}</div>
                         <div class="exp-main">
                             <div class="exp-cat">{c['name']}</div>
@@ -1344,9 +1344,8 @@ def render_ai_coach(user, market):
     if result:
         risk_cls = {"낮음": "risk-low", "보통": "risk-mid", "높음": "risk-high"}.get(result.get("risk_level"), "risk-mid")
         hype = result.get("hype_line", "")
-        st.markdown(f"""
-            <div class="coach-card">
-                {f'<div class="coach-hype">{hype}</div>' if hype else ''}
+        hype_html = f'<div class="coach-hype">{hype}</div>' if hype else ''
+        st.markdown(f"""<div class="coach-card">{hype_html}
                 <div class="coach-summary">{result.get('summary','')}</div>
                 <span class="risk-chip {risk_cls}">리스크 수준 · {result.get('risk_level','-')}</span>
             </div>
@@ -1642,7 +1641,7 @@ def render_retirement(user, age: int):
         current_age = st.number_input("현재 나이", min_value=15, max_value=80, value=int(age), step=1)
         retire_age = st.number_input("은퇴 목표 나이", min_value=current_age + 1, max_value=90, value=max(current_age + 1, 65), step=1)
     with c2:
-        current_assets = st.number_input("현재 총자산(원)", min_value=0, value=current_total, step=100_000,
+        current_assets = st.number_input("현재 총자산(원)", min_value=0, value=max(0, current_total), step=100_000,
                                           help="대시보드의 순자산(실제+모의)을 기본값으로 불러왔어요. 직접 수정 가능합니다.")
         monthly_saving = st.number_input("매월 추가 저축/투자액(원)", min_value=0, value=300_000, step=50_000)
     with c3:
@@ -1927,7 +1926,7 @@ def main():
         with st.expander("🔧 지갑 잔액 직접 수정"):
             st.caption("깜빡하고 초기 자금을 잘못 넣었거나, 실제 통장 잔액에 맞춰 보정하고 싶을 때 사용하세요.")
             new_balance = st.number_input("현재 지갑 잔액을 이 값으로 맞추기 (원)",
-                                           min_value=0, value=int(user.get("real_cash", 0)), step=10_000,
+                                           min_value=0, value=max(0, int(user.get("real_cash", 0))), step=10_000,
                                            key="_balance_fix_input")
             if st.button("잔액 반영", use_container_width=True):
                 diff = adjust_balance(user, new_balance)
