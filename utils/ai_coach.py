@@ -94,16 +94,79 @@ RISK_PROFILE_PROMPT = """\
 """
 
 
+RISK_PROFILE_TIERS = [
+    # (하한, 상한, 프로필명, 설명, 기본 배분(주식/채권/현금), 주의사항, 한줄 구호)
+    (10, 14, "안정형",
+     "잃지 않는 게 최우선인 성향이에요. 원금을 지키면서 조금씩 굴리는 전략이 잘 맞고, 무리한 수익보다 꾸준함에 집중하는 게 유리해요.",
+     {"주식/성장자산": 20, "채권/안전자산": 40, "현금성자산": 40},
+     "수익률에 조급해져서 갑자기 위험자산 비중을 확 늘리지 않도록 주의하세요.",
+     "지키는 것도 실력! 💪"),
+    (15, 18, "안정추구형",
+     "안정과 성장 사이에서 균형을 잡는 타입이에요. 방어 자산을 기반으로 하되, 조금씩 성장자산 비중을 늘려가는 전략이 좋아요.",
+     {"주식/성장자산": 35, "채권/안전자산": 40, "현금성자산": 25},
+     "너무 잦은 리밸런싱으로 수수료만 나가지 않게 조심하세요.",
+     "균형 잡힌 전진! ⚖️"),
+    (19, 22, "위험중립형",
+     "리스크와 리턴의 균형을 이해하고 있는 성향이에요. 자산을 고르게 분산하면서 시장 변동에 일희일비하지 않는 게 핵심이에요.",
+     {"주식/성장자산": 50, "채권/안전자산": 30, "현금성자산": 20},
+     "특정 종목이나 테마에 몰빵하지 않고 분산을 유지하세요.",
+     "중심 잡고 꾸준히! 🎯"),
+    (23, 26, "적극투자형",
+     "성장에 무게를 두는 타입이에요. 변동성을 감내할 준비가 되어 있고, 장기적으로 성장자산 비중을 높게 가져가도 괜찮아요.",
+     {"주식/성장자산": 65, "채권/안전자산": 25, "현금성자산": 10},
+     "단기 하락에 흔들려 원칙 없이 매매하지 않도록 나만의 기준을 세워두세요.",
+     "공격적으로, 그러나 스마트하게! 🔥"),
+    (27, 30, "공격투자형",
+     "높은 수익을 위해 높은 변동성도 기꺼이 감수하는 타입이에요. 대신 잃어도 괜찮은 돈으로만 투자한다는 원칙이 꼭 필요해요.",
+     {"주식/성장자산": 80, "채권/안전자산": 15, "현금성자산": 5},
+     "비상금과 생활비까지 투자에 밀어넣지 않도록 선을 확실히 그어두세요.",
+     "리스크는 나의 무기! ⚡"),
+]
+
+
+def _fallback_risk_profile(answers: list, total_score: int = None) -> dict:
+    """AI 호출 없이도 항상 동작하는 규칙 기반 투자성향 진단.
+    RISK_PROFILE_PROMPT에 정의된 점수 구간표를 그대로 코드로 옮긴 것이라 AI 결과와 방향성이 같다.
+    API 키가 없거나(client None) AI 호출이 실패했을 때(쿼터 초과 등) 이 함수로 대체한다."""
+    if total_score is None:
+        total_score = sum(a["score"] for a in answers)
+    by_id = {}
+    for a in answers:
+        # answers는 {"q":.., "answer":.., "score":..} 형태라 id가 없을 수 있어 라벨로 최대한 매칭
+        by_id[a.get("q", "")] = a
+
+    tier = next((t for t in RISK_PROFILE_TIERS if t[0] <= total_score <= t[1]), RISK_PROFILE_TIERS[2])
+    _, _, name, desc, alloc, caution, hype = tier
+    alloc = dict(alloc)
+
+    # 비상금이 없거나("전혀 없다") 부담되는 빚이 있다고 답했다면 현금 비중을 최소 20%로 보정
+    need_cash_floor = any(
+        a.get("score") == 1 and ("비상금" in a.get("q", "") or "대출" in a.get("q", "") or "빚" in a.get("q", ""))
+        for a in answers
+    )
+    if need_cash_floor and alloc["현금성자산"] < 20:
+        gap = 20 - alloc["현금성자산"]
+        take = min(gap, alloc["주식/성장자산"])
+        alloc["주식/성장자산"] -= take
+        alloc["현금성자산"] += take
+        caution = "비상금·부채 부담이 있어 현금 비중을 조금 더 두었어요. " + caution
+
+    return {
+        "profile_name": name,
+        "description": desc,
+        "recommended_allocation": alloc,
+        "caution": caution,
+        "hype_line": hype,
+        "_fallback": True,
+    }
+
+
 def get_risk_profile(answers: list):
     """answers: [{"q": 질문, "answer": 선택한 라벨, "score": 점수}, ...]"""
     client = _client()
     total_score = sum(a["score"] for a in answers)
     if client is None:
-        return {
-            "profile_name": "진단 불가",
-            "description": "AI 코치를 사용하려면 secrets.toml에 GEMINI_API_KEY를 설정해주세요.",
-            "recommended_allocation": {}, "caution": "", "hype_line": "",
-        }
+        return _fallback_risk_profile(answers, total_score)
     try:
         resp = client.models.generate_content(
             model="gemini-2.5-flash",
@@ -115,13 +178,9 @@ def get_risk_profile(answers: list):
         )
         text = resp.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         return json.loads(text)
-    except Exception as e:
-        return {
-            "profile_name": "오류",
-            "description": "지금 응답이 원활하지 않아요. 잠시 후 다시 시도해주세요.",
-            "recommended_allocation": {}, "caution": "", "hype_line": "",
-            "_error": True, "_error_detail": str(e),
-        }
+    except Exception:
+        # AI 호출이 실패하면(쿼터 초과 등) 규칙 기반 결과로 조용히 대체한다.
+        return _fallback_risk_profile(answers, total_score)
 
 
 REPORT_PROMPT = """\
