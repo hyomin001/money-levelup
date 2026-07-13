@@ -1298,6 +1298,8 @@ def render_onboarding(user):
 
     if user.get("risk_profile"):
         rp = user["risk_profile"]
+        if rp.get("_error"):
+            st.warning("진단 응답이 원활하지 않았어요. 아래 '다시 진단받기'를 눌러 한 번 더 시도해주세요.")
         with st.container(border=True):
             if rp.get("hype_line"):
                 st.markdown(f"#### {rp['hype_line']}")
@@ -1370,6 +1372,8 @@ def render_ai_coach(user, market):
         _persist(user)
 
     result = st.session_state.get("ai_result")
+    if result and result.get("_error"):
+        st.warning("코치 응답이 원활하지 않아요. 번거로우시겠지만 '⚡ 코치 소환하기'를 한 번 더 눌러주세요.")
     if result:
         risk_cls = {"낮음": "risk-low", "보통": "risk-mid", "높음": "risk-high"}.get(result.get("risk_level"), "risk-mid")
         hype = result.get("hype_line", "")
@@ -1417,8 +1421,12 @@ def render_ai_coach(user, market):
             "goal": goal_progress(user),
         }
         with st.spinner("리포트를 작성하는 중..."):
-            report_md = get_full_report(report_data)
+            report_md, report_error = get_full_report(report_data)
         st.session_state["ai_report_md"] = report_md
+        st.session_state["ai_report_error"] = report_error
+        if report_error:
+            st.warning("AI 리포트 생성이 원활하지 않아 요약본으로 보여드리고 있어요. "
+                       "'📄 종합 리포트 생성하기'를 다시 눌러보시면 정상 리포트가 나올 수 있어요.")
 
     report_md = st.session_state.get("ai_report_md")
     if report_md:
@@ -1467,8 +1475,10 @@ def render_ai_chat(user, market):
 
         with st.chat_message("assistant"):
             with st.spinner("생각하는 중..."):
-                answer = chat_with_coach(history_payload, context)
+                answer, chat_error = chat_with_coach(history_payload, context)
             st.write(answer)
+            if chat_error:
+                st.caption("⚠️ 응답이 원활하지 않았어요. 아래 채팅창에 같은 질문을 다시 보내주시면 돼요.")
         user["chat_history"].append({"role": "coach", "text": answer})
         user["chat_history"] = user["chat_history"][-40:]
         user["ai_coach_count"] = user.get("ai_coach_count", 0) + 1

@@ -118,8 +118,9 @@ def get_risk_profile(answers: list):
     except Exception as e:
         return {
             "profile_name": "오류",
-            "description": f"진단 생성 중 오류가 발생했습니다: {e}",
+            "description": "지금 응답이 원활하지 않아요. 잠시 후 다시 시도해주세요.",
             "recommended_allocation": {}, "caution": "", "hype_line": "",
+            "_error": True, "_error_detail": str(e),
         }
 
 
@@ -169,11 +170,12 @@ def _fallback_report(data: dict) -> str:
     return "\n".join(lines)
 
 
-def get_full_report(data: dict) -> str:
-    """data: {financial_health, forecast, spending_by_category, portfolio, savings_total, real_cash} 등을 담은 dict"""
+def get_full_report(data: dict) -> tuple[str, bool]:
+    """data: {financial_health, forecast, spending_by_category, portfolio, savings_total, real_cash} 등을 담은 dict
+    반환값: (마크다운 리포트, 실제 API 오류로 인한 대체 여부). 키가 아예 없는 정상 케이스는 오류가 아니므로 False."""
     client = _client()
     if client is None:
-        return _fallback_report(data)
+        return _fallback_report(data), False
     try:
         resp = client.models.generate_content(
             model="gemini-2.5-flash",
@@ -181,9 +183,9 @@ def get_full_report(data: dict) -> str:
             config=types.GenerateContentConfig(system_instruction=REPORT_PROMPT),
         )
         text = resp.text.strip()
-        return text if text else _fallback_report(data)
-    except Exception as e:
-        return _fallback_report(data) + f"\n\n> (AI 리포트 생성 중 오류가 발생해 요약본으로 대체했어요: {e})"
+        return (text, False) if text else (_fallback_report(data), True)
+    except Exception:
+        return _fallback_report(data), True
 
 
 CHAT_SYSTEM_PROMPT = """\
@@ -194,12 +196,13 @@ CHAT_SYSTEM_PROMPT = """\
 """
 
 
-def chat_with_coach(history: list, user_context: dict) -> str:
+def chat_with_coach(history: list, user_context: dict) -> tuple[str, bool]:
     """history: [{"role": "user"|"model", "text": ...}, ...] (마지막 항목이 이번 사용자 질문)
-    user_context: 가계부/투자/저축 요약 dict — 매 턴 최신 데이터를 함께 전달해 근거 있는 답변을 만든다."""
+    user_context: 가계부/투자/저축 요약 dict — 매 턴 최신 데이터를 함께 전달해 근거 있는 답변을 만든다.
+    반환값: (답변 텍스트, 실제 API 오류 여부)."""
     client = _client()
     if client is None:
-        return "AI 코치를 사용하려면 secrets.toml에 GEMINI_API_KEY를 설정해주세요."
+        return "AI 코치를 사용하려면 secrets.toml에 GEMINI_API_KEY를 설정해주세요.", False
     try:
         contents = [types.Content(role=("user" if h["role"] == "user" else "model"),
                                     parts=[types.Part(text=h["text"])]) for h in history[:-1]]
@@ -212,9 +215,9 @@ def chat_with_coach(history: list, user_context: dict) -> str:
             contents=contents,
             config=types.GenerateContentConfig(system_instruction=CHAT_SYSTEM_PROMPT),
         )
-        return resp.text.strip()
-    except Exception as e:
-        return f"답변 생성 중 오류가 발생했어요: {e}"
+        return resp.text.strip(), False
+    except Exception:
+        return "지금 응답이 원활하지 않아요. 잠시 후 다시 시도해주세요.", True
 
 
 def get_financial_diagnosis(spending_by_category: dict, portfolio_summary: list, savings_total: int, real_cash: int):
@@ -253,7 +256,8 @@ def get_financial_diagnosis(spending_by_category: dict, portfolio_summary: list,
     except Exception as e:
         return {
             "hype_line": "",
-            "summary": f"진단 생성 중 오류가 발생했습니다: {e}",
+            "summary": "지금 응답이 원활하지 않아요. 잠시 후 다시 시도해주세요.",
             "spending_insight": "", "investing_insight": "",
             "action_items": [], "risk_level": "-",
+            "_error": True, "_error_detail": str(e),
         }
