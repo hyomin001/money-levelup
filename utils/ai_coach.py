@@ -32,11 +32,35 @@ SYSTEM_PROMPT = """\
 """
 
 
+# google-genai SDK는 http_options.retry_options를 명시적으로 넘기지 않으면
+# "재시도 없음"이 기본값이다 (내부적으로 tenacity.stop_after_attempt(1)).
+# 그래서 지금까지는 일시적인 429(rate limit)/5xx/타임아웃 오류가 나면 바로 실패로
+# 처리되어 "오류가 발생했습니다" 메시지가 그대로 화면에 떴고, 사용자가 버튼을
+# 2~3번 다시 눌러야 그중 한 번이 우연히 성공하는 것처럼 보였던 것.
+# 아래처럼 재시도 정책 + 타임아웃을 명시하면 이런 일시적 오류는 SDK가 내부적으로
+# 자동 재시도하므로, 사용자가 직접 여러 번 시도할 필요가 없어진다.
+_RETRY_OPTIONS = types.HttpRetryOptions(
+    attempts=4,            # 최초 요청 포함 최대 4회 시도
+    initial_delay=1.0,     # 첫 재시도까지 1초 대기
+    max_delay=8.0,         # 재시도 간 대기는 최대 8초
+    exp_base=2.0,
+    jitter=1.0,
+    http_status_codes=[408, 429, 500, 502, 503, 504],
+)
+
+
+@st.cache_resource
 def _client():
     api_key = st.secrets.get("GEMINI_API_KEY", None)
     if not api_key:
         return None
-    return genai.Client(api_key=api_key)
+    return genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(
+            timeout=30_000,  # ms 단위. 응답이 없을 때 무한정 기다리지 않도록 30초 제한
+            retry_options=_RETRY_OPTIONS,
+        ),
+    )
 
 
 RISK_PROFILE_PROMPT = """\
