@@ -199,6 +199,25 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'S
     box-shadow: 0 0 0 1px var(--brand) inset !important;
 }
 
+/* 랜딩 페이지 - 문제 정의 / 해결책 카드 */
+.problem-card {
+    background: var(--coral-soft); border: 1px solid rgba(240,68,82,0.25); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 6px; height: 100%;
+}
+.problem-card .p-tag { font-size: 0.68rem; font-weight: 700; letter-spacing: 1px; color: var(--coral); text-transform: uppercase; }
+.problem-card .p-title { font-size: 0.92rem; font-weight: 700; color: var(--ink); margin: 4px 0 2px 0; }
+.problem-card .p-body { font-size: 0.8rem; color: var(--ink-soft); line-height: 1.45; }
+
+.solution-card {
+    background: var(--brand-soft); border: 1px solid rgba(49,130,246,0.25); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 6px; height: 100%;
+}
+.solution-card .s-tag { font-size: 0.68rem; font-weight: 700; letter-spacing: 1px; color: var(--brand-deep); text-transform: uppercase; }
+.solution-card .s-title { font-size: 0.92rem; font-weight: 700; color: var(--ink); margin: 4px 0 2px 0; }
+.solution-card .s-body { font-size: 0.8rem; color: var(--ink-soft); line-height: 1.45; }
+
+.section-lead { font-size: 0.95rem; font-weight: 700; color: var(--ink-soft); margin: 22px 0 10px 0; }
+
 /* 뉴스 카드 */
 .news-item { border-left: 3px solid var(--brand); padding: 6px 12px; margin-bottom: 6px;
     background: var(--paper-2); border: 1px solid var(--line); border-left-width: 3px; border-radius: 0 8px 8px 0; }
@@ -1917,25 +1936,52 @@ def render_signup_gate():
         <h1>💡 머니레벨업</h1>
         <p>사회초년생을 위한 AI 소비·투자 코칭 모의 서비스 — 실제 돈 없이, 실패해도 되는 연습장</p>
         </div>""", unsafe_allow_html=True)
+
+    st.markdown('<div class="section-lead">🚩 왜 머니레벨업이 필요할까요?</div>', unsafe_allow_html=True)
+    p1, p2, p3 = st.columns(3)
+    with p1:
+        st.markdown("""<div class="problem-card">
+            <div class="p-tag">PROBLEM 1</div>
+            <div class="p-title">📚 배운 적 없이 시작하는 첫 월급</div>
+            <div class="p-body">예산 관리·투자·리스크 관리를 학교에서 실습해볼 기회가 거의 없다 보니,
+            사회초년생 대부분은 첫 월급을 받은 뒤에야 "맨땅에 헤딩"으로 금융을 배웁니다.</div>
+            </div>""", unsafe_allow_html=True)
+    with p2:
+        st.markdown("""<div class="problem-card">
+            <div class="p-tag">PROBLEM 2</div>
+            <div class="p-title">💸 실패의 대가가 곧바로 내 돈</div>
+            <div class="p-body">레버리지 투자, 폭락장 대응, 목돈 관리를 실제 돈으로 처음 겪으면
+            수업료가 너무 비쌉니다. 실패해도 되는 연습 공간이 없는 게 진짜 문제입니다.</div>
+            </div>""", unsafe_allow_html=True)
+    with p3:
+        st.markdown("""<div class="problem-card">
+            <div class="p-tag">PROBLEM 3</div>
+            <div class="p-title">🎣 금융 사기의 첫 표적</div>
+            <div class="p-body">리딩방 원금보장, 코인 에어드랍 피싱, 가족 사칭 메신저피싱처럼
+            신종 금융사기는 특히 경험이 적은 사회초년생을 노립니다.</div>
+            </div>""", unsafe_allow_html=True)
+
+    st.markdown('<div class="section-lead">✅ 머니레벨업은 이렇게 해결합니다</div>', unsafe_allow_html=True)
     f1, f2, f3 = st.columns(3)
     with f1:
-        st.markdown("""<div class="asset-card" style="min-height:108px">
-            <div style="font-size:1.5rem">🧭</div>
-            <div class="a-name" style="margin-top:4px">AI가 나의 성향을 진단</div>
-            <div style="font-size:0.78rem;color:var(--ink-soft);margin-top:2px">10문항으로 투자성향·자산배분 추천</div>
+        st.markdown("""<div class="solution-card">
+            <div class="s-tag">SOLUTION 1</div>
+            <div class="s-title">🧭 AI가 나의 성향을 진단</div>
+            <div class="s-body">10문항으로 투자성향·자산배분을 추천받아, 나에게 맞는 금융 습관부터 시작합니다.</div>
             </div>""", unsafe_allow_html=True)
     with f2:
-        st.markdown("""<div class="asset-card" style="min-height:108px">
-            <div style="font-size:1.5rem">🚨</div>
-            <div class="a-name" style="margin-top:4px">위험은 여기서 먼저 겪는다</div>
-            <div style="font-size:0.78rem;color:var(--ink-soft);margin-top:2px">사기·레버리지·폭락장을 가상으로 미리 체험</div>
+        st.markdown("""<div class="solution-card">
+            <div class="s-tag">SOLUTION 2</div>
+            <div class="s-title">🚨 위험은 여기서 먼저 겪는다</div>
+            <div class="s-body">사기·레버리지·폭락장을 실제 돈과 완전히 분리된 가상 공간에서 미리 체험합니다.</div>
             </div>""", unsafe_allow_html=True)
     with f3:
-        st.markdown("""<div class="asset-card" style="min-height:108px">
-            <div style="font-size:1.5rem">🏅</div>
-            <div class="a-name" style="margin-top:4px">기록이 곧 레벨이 된다</div>
-            <div style="font-size:0.78rem;color:var(--ink-soft);margin-top:2px">가계부·저축 습관이 XP와 뱃지로 쌓임</div>
+        st.markdown("""<div class="solution-card">
+            <div class="s-tag">SOLUTION 3</div>
+            <div class="s-title">🏅 기록이 곧 레벨이 된다</div>
+            <div class="s-body">가계부·저축 습관을 꾸준히 기록할수록 XP와 뱃지로 쌓여 동기부여가 됩니다.</div>
             </div>""", unsafe_allow_html=True)
+
     with st.container(border=True):
         st.subheader("시작하기 전에")
         if db_available():
