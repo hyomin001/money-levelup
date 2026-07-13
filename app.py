@@ -1331,8 +1331,18 @@ def render_onboarding(user):
         if submitted:
             payload = [{"q": q["q"], "answer": answers[q["id"]]["label"], "score": answers[q["id"]]["score"]}
                        for q in ONBOARDING_QUESTIONS]
-            with st.spinner("AI가 투자성향을 분석하는 중..."):
-                result = get_risk_profile(payload)
+            st.session_state["_ai_busy"] = True
+            try:
+                with st.spinner("AI가 투자성향을 분석하는 중..."):
+                    result = get_risk_profile(payload)
+            except Exception as e:
+                result = {
+                    "profile_name": "오류", "description": "예상치 못한 오류가 발생했어요.",
+                    "recommended_allocation": {}, "caution": "", "hype_line": "",
+                    "_error": True, "_error_detail": repr(e),
+                }
+            finally:
+                st.session_state["_ai_busy"] = False
             user["risk_profile"] = result
             _persist(user)
             st.rerun()
@@ -1344,6 +1354,7 @@ def render_ai_coach(user, market):
     st.caption("최근 소비·투자·저축 데이터를 바탕으로 Gemini 기반 코치가 당신만을 위한 진단을 내려드립니다.")
 
     if st.button("⚡ 코치 소환하기", type="primary", use_container_width=True):
+        st.session_state["_ai_busy"] = True
         spending = {}
         for t in user["tx_log"]:
             if t.get("kind") == "expense":
@@ -1369,6 +1380,7 @@ def render_ai_coach(user, market):
             status.update(label="진단 완료!", state="complete", expanded=False)
 
         st.session_state["ai_result"] = result
+        st.session_state["_ai_busy"] = False
         user["ai_coach_count"] = user.get("ai_coach_count", 0) + 1
         if award_badge(user, "ai_first"):
             st.toast("🏅 뱃지 획득: AI와 첫 상담", icon="🎉")
@@ -1921,7 +1933,8 @@ def main():
         render_signup_gate()
         return
 
-    st_autorefresh(interval=10_000, key="market_tick")
+    if not st.session_state.get("_ai_busy"):
+        st_autorefresh(interval=10_000, key="market_tick")
 
     profile = st.session_state.profile
     uid = profile["uid"]
