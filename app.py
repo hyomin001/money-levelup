@@ -30,7 +30,7 @@ from utils.core import (
     spending_persona, estimate_retirement,
     verify_pin,
 )
-from utils.ai_coach import get_financial_diagnosis, get_risk_profile, get_full_report, chat_with_coach
+from utils.ai_coach import get_financial_diagnosis, get_risk_profile, get_full_report, chat_with_coach, get_quota_status
 from utils.database import db_available
 
 st.set_page_config(page_title="머니레벨업 | AI 금융 코치", page_icon="💡", layout="wide")
@@ -2006,6 +2006,13 @@ def main():
         <h1>💡 머니레벨업</h1>
         <p>{html.escape(profile['name'])}님, 오늘도 한 걸음 레벨업 해봐요</p>
         </div>""", unsafe_allow_html=True)
+
+    quota_exhausted, reset_at = get_quota_status()
+    if quota_exhausted:
+        st.warning(
+            f"⚠️ 오늘 AI 무료 할당량을 모두 사용했어요. **{reset_at.strftime('%m/%d %H:%M')} (한국시간) 이후** 다시 사용할 수 있어요. "
+            "(투자성향 진단은 기본 진단 결과로 계속 이용 가능해요)"
+        )
 
     render_news_ticker(market)
 
