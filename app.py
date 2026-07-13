@@ -1300,6 +1300,9 @@ def render_onboarding(user):
         rp = user["risk_profile"]
         if rp.get("_error"):
             st.warning("진단 응답이 원활하지 않았어요. 아래 '다시 진단받기'를 눌러 한 번 더 시도해주세요.")
+            if rp.get("_error_detail"):
+                with st.expander("🔧 오류 상세 (디버그용)"):
+                    st.code(rp["_error_detail"])
         with st.container(border=True):
             if rp.get("hype_line"):
                 st.markdown(f"#### {rp['hype_line']}")
@@ -1374,6 +1377,9 @@ def render_ai_coach(user, market):
     result = st.session_state.get("ai_result")
     if result and result.get("_error"):
         st.warning("코치 응답이 원활하지 않아요. 번거로우시겠지만 '⚡ 코치 소환하기'를 한 번 더 눌러주세요.")
+        if result.get("_error_detail"):
+            with st.expander("🔧 오류 상세 (디버그용)"):
+                st.code(result["_error_detail"])
     if result:
         risk_cls = {"낮음": "risk-low", "보통": "risk-mid", "높음": "risk-high"}.get(result.get("risk_level"), "risk-mid")
         hype = result.get("hype_line", "")
