@@ -594,6 +594,72 @@ def predict_next_month_expense(user):
     }
 
 
+# ── 사회초년생용 50/30/20 예산 자동분석 ──────────────────────────────────────
+# 고정비(니즈): 주거/공과금·교통·의료/건강·구독멤버십 / 변동비(원츠): 식비·카페·쇼핑·여가·기타
+NEEDS_CATEGORIES = {"living", "transport", "health", "sub"}
+BUDGET_TARGET = {"needs": 0.50, "wants": 0.30, "savings": 0.20}
+
+
+def analyze_budget_50_30_20(user: dict):
+    """이번 달(최근 30일) 지출을 고정비/변동비로 나누고, 이번 달 수입 대비 저축률을 계산한다."""
+    tx = user.get("tx_log", [])
+    month_ago = time.time() - 30 * 24 * 3600
+    recent = [t for t in tx if t.get("ts", 0) >= month_ago]
+
+    income = sum(t["amount"] for t in recent if t.get("kind") == "income")
+    expenses = [t for t in recent if t.get("kind") == "expense"]
+    needs_amt = sum(t["amount"] for t in expenses if t.get("category") in NEEDS_CATEGORIES)
+    wants_amt = sum(t["amount"] for t in expenses if t.get("category") not in NEEDS_CATEGORIES)
+    total_exp = needs_amt + wants_amt
+
+    if income > 0:
+        base = income
+        savings_amt = max(0, income - total_exp)
+    else:
+        # 이번 달 수입 기록이 없으면 지출 총액을 기준(100%)으로 needs/wants 비중만 보여준다
+        base = total_exp
+        savings_amt = 0
+
+    def pct(x):
+        return (x / base) if base > 0 else 0.0
+
+    return {
+        "has_income": income > 0,
+        "income": income,
+        "needs_amt": needs_amt, "wants_amt": wants_amt, "savings_amt": savings_amt,
+        "needs_ratio": pct(needs_amt), "wants_ratio": pct(wants_amt), "savings_ratio": pct(savings_amt),
+        "target": BUDGET_TARGET,
+    }
+
+
+# ── 구독료(반복 결제) 자동 감지 ───────────────────────────────────────────────
+def detect_recurring_subscriptions(user: dict):
+    """'구독/멤버십' 카테고리 지출을 메모 기준으로 묶어, 두 달 이상 반복되면 '확정 구독'으로 표시한다."""
+    tx = [t for t in user.get("tx_log", []) if t.get("kind") == "expense" and t.get("category") == "sub"]
+    groups = {}
+    for t in tx:
+        key = (t.get("memo") or "").strip().lower() or "미분류 구독"
+        g = groups.setdefault(key, {"label": (t.get("memo") or "미분류 구독").strip() or "미분류 구독",
+                                     "months": set(), "amounts": [], "last_ts": 0, "last_amount": 0})
+        lt = time.localtime(t.get("ts", time.time()))
+        g["months"].add((lt.tm_year, lt.tm_mon))
+        g["amounts"].append(t["amount"])
+        if t.get("ts", 0) >= g["last_ts"]:
+            g["last_ts"] = t.get("ts", 0)
+            g["last_amount"] = t["amount"]
+
+    confirmed, candidates = [], []
+    for g in groups.values():
+        item = {"label": g["label"], "monthly_cost": g["last_amount"],
+                 "months_seen": len(g["months"]), "total_seen": sum(g["amounts"])}
+        (confirmed if len(g["months"]) >= 2 else candidates).append(item)
+
+    confirmed.sort(key=lambda x: -x["monthly_cost"])
+    candidates.sort(key=lambda x: -x["monthly_cost"])
+    monthly_total = sum(c["monthly_cost"] for c in confirmed)
+    return {"confirmed": confirmed, "candidates": candidates, "monthly_total": monthly_total}
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # 🚨 리스크 체험관 로직 — 실제/모의 자금과 완전히 분리된 학습 전용 시뮬레이션
 # ══════════════════════════════════════════════════════════════════════════

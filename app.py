@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 
 from utils.config import (
-    ASSET_CONFIG, EXPENSE_CATEGORIES, INCOME_CATEGORIES, SAVINGS_PRODUCTS,
+    ASSET_CONFIG, EXPENSE_CATEGORIES, INCOME_CATEGORIES, SAVINGS_PRODUCTS, GOAL_PRESETS,
     STARTING_MOCK_CASH, STARTING_REAL_CASH,
     ONBOARDING_QUESTIONS, BADGES, BENCHMARK_SPENDING_RATIO,
     SCAM_SCENARIOS, LEVERAGE_OPTIONS, LEVERAGE_SEED, LEVERAGE_MAINTENANCE_RATIO,
@@ -23,6 +23,7 @@ from utils.core import (
     set_goal, goal_progress, record_net_worth_point,
     create_saving, saving_progress, total_saving_amount,
     financial_health_score, predict_next_month_expense,
+    analyze_budget_50_30_20, detect_recurring_subscriptions,
     record_scam_answer, scam_lab_summary, SCAM_MAX_SCORE,
     run_leverage_simulation, record_leverage_trial,
     get_crisis_path, reset_crisis_path, simulate_crisis_decisions, record_crisis_result,
@@ -1123,6 +1124,40 @@ def render_expense(user):
         st.info("아직 기록된 내역이 없어요. 위에서 첫 기록을 남겨보세요!")
         return
 
+    # ── 💡 사회초년생용 50/30/20 예산 자동분석 (최근 30일 기준) ──────────────
+    st.subheader("💡 이번 달 예산 현황 (50/30/20 룰)")
+    st.caption("고정비(주거·교통·의료·구독) 50% · 변동비(식비·카페·쇼핑·여가 등) 30% · 저축 20%를 기준으로 비교해요.")
+    budget = analyze_budget_50_30_20(user)
+    bc1, bc2, bc3 = st.columns(3)
+    rows = [
+        (bc1, "🏠 고정비", budget["needs_ratio"], budget["target"]["needs"], budget["needs_amt"]),
+        (bc2, "🛍️ 변동비", budget["wants_ratio"], budget["target"]["wants"], budget["wants_amt"]),
+        (bc3, "💰 저축", budget["savings_ratio"], budget["target"]["savings"], budget["savings_amt"]),
+    ]
+    for col, label, ratio, target, amt in rows:
+        with col:
+            diff = (ratio - target) * 100
+            flag = "🔴" if diff > 5 else ("🟢" if abs(diff) <= 5 else "🔵")
+            st.metric(label, f"{ratio*100:.0f}%", f"{diff:+.0f}%p vs 목표 {target*100:.0f}%")
+            st.progress(min(1.0, ratio))
+            st.caption(f"{flag} {format_korean_money(amt)}")
+    if not budget["has_income"]:
+        st.caption("ℹ️ 최근 30일 수입 기록이 없어서 '저축' 비중은 계산할 수 없어요 — 수입 추가 탭에서 월급을 기록해보세요.")
+
+    # ── 🔁 구독료(반복 결제) 자동 감지 ────────────────────────────────────────
+    subs = detect_recurring_subscriptions(user)
+    if subs["confirmed"] or subs["candidates"]:
+        st.subheader("🔁 매달 나가는 구독료 감지")
+        if subs["confirmed"]:
+            st.caption(f"2개월 이상 반복 확인된 구독 · 월 예상 합계 **{format_korean_money(subs['monthly_total'])}**")
+            for s in subs["confirmed"]:
+                st.markdown(f"- **{s['label']}** · 월 {format_korean_money(s['monthly_cost'])} "
+                            f"({s['months_seen']}개월 연속 감지)")
+        if subs["candidates"]:
+            with st.expander(f"🔍 구독 후보 ({len(subs['candidates'])}건 — 아직 1개월치만 기록됨)"):
+                for s in subs["candidates"]:
+                    st.caption(f"{s['label']} · {format_korean_money(s['monthly_cost'])} (다음 달에도 기록되면 확정 표시)")
+
     col_l, col_r = st.columns([3, 2])
     with col_l:
         st.subheader("최근 내역")
@@ -1200,10 +1235,28 @@ def render_goals(user):
             st.success("🎉 목표를 달성했어요! 새로운 목표를 세워볼까요?")
         st.divider()
 
+    st.write("✨ 새 목표 설정하기" if not g else "✏️ 목표 다시 설정하기")
+    st.caption("사회초년생이 실제로 많이 세우는 목표부터 골라보세요. 물론 직접 입력도 가능해요.")
+
+    preset_cols = st.columns(len(GOAL_PRESETS))
+    if "goal_preset" not in st.session_state:
+        st.session_state.goal_preset = GOAL_PRESETS[0]["id"]
+    for i, p in enumerate(GOAL_PRESETS):
+        with preset_cols[i]:
+            active = st.session_state.goal_preset == p["id"]
+            st.markdown(f'<div class="{"cat-pill-active" if active else ""}">', unsafe_allow_html=True)
+            if st.button(f"{p['icon']}\n{p['name']}", key=f"goalpreset_{p['id']}", use_container_width=True):
+                st.session_state.goal_preset = p["id"]
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    preset = next(p for p in GOAL_PRESETS if p["id"] == st.session_state.goal_preset)
+    st.caption(f"💬 {preset['desc']} · 참고 기간 {preset['months']}개월")
+
     with st.form("goal_form"):
-        st.write("✨ 새 목표 설정하기" if not g else "✏️ 목표 다시 설정하기")
-        name = st.text_input("목표 이름", placeholder="예: 비상금 500만원 모으기, 유럽여행 자금")
-        target = st.number_input("목표 금액(원)", min_value=10000, step=100000, value=5_000_000)
+        name = st.text_input("목표 이름", value=("" if preset["id"] == "custom" else preset["name"]),
+                              placeholder="예: 비상금 500만원 모으기, 유럽여행 자금")
+        target = st.number_input("목표 금액(원)", min_value=10000, step=100000, value=preset["target"])
         submitted = st.form_submit_button("목표 설정", type="primary")
         if submitted:
             if not name.strip():
