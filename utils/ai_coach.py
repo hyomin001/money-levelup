@@ -40,9 +40,9 @@ SYSTEM_PROMPT = """\
 # 아래처럼 재시도 정책 + 타임아웃을 명시하면 이런 일시적 오류는 SDK가 내부적으로
 # 자동 재시도하므로, 사용자가 직접 여러 번 시도할 필요가 없어진다.
 _RETRY_OPTIONS = types.HttpRetryOptions(
-    attempts=4,            # 최초 요청 포함 최대 4회 시도
+    attempts=2,            # 최초 요청 포함 최대 2회 시도 (너무 오래 걸리면 자동새로고침/프록시 타임아웃과 충돌)
     initial_delay=1.0,     # 첫 재시도까지 1초 대기
-    max_delay=8.0,         # 재시도 간 대기는 최대 8초
+    max_delay=4.0,         # 재시도 간 대기는 최대 4초
     exp_base=2.0,
     jitter=1.0,
     http_status_codes=[408, 429, 500, 502, 503, 504],
@@ -57,7 +57,7 @@ def _client():
     return genai.Client(
         api_key=api_key,
         http_options=types.HttpOptions(
-            timeout=30_000,  # ms 단위. 응답이 없을 때 무한정 기다리지 않도록 30초 제한
+            timeout=20_000,  # ms 단위. 응답이 없을 때 무한정 기다리지 않도록 20초 제한
             retry_options=_RETRY_OPTIONS,
         ),
     )
