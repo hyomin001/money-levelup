@@ -2,9 +2,60 @@
 # 지원서 "AI 활용 방법" 항목의 핵심 기능.
 # 사용자의 소비/투자/저축 데이터를 Gemini에게 넘겨 개인화된 금융 코칭을 생성한다.
 import json
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 import streamlit as st
 from google import genai
 from google.genai import types
+
+try:
+    _PT = ZoneInfo("America/Los_Angeles")   # Gemini 무료 할당량은 태평양시간 자정 기준으로 리셋된다
+    _KST = ZoneInfo("Asia/Seoul")
+    _TZ_OK = True
+except Exception:
+    # 배포 환경에 tzdata가 없는 경우(requirements.txt에 tzdata 추가로 보통 해결됨) 대비한 안전장치.
+    # 이 경우 할당량 배너 기능만 조용히 꺼지고, 나머지 앱 기능은 정상 동작한다.
+    _PT = _KST = None
+    _TZ_OK = False
+
+
+def _is_quota_error(e: Exception) -> bool:
+    msg = str(e)
+    return "RESOURCE_EXHAUSTED" in msg or "429" in msg or "quota" in msg.lower()
+
+
+def _next_quota_reset() -> datetime:
+    """다음 태평양시간 자정(=할당량 리셋 시각)을 반환."""
+    now_pt = datetime.now(_PT)
+    return (now_pt + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+@st.cache_resource
+def _quota_state():
+    """프로세스(=앱) 전체에서 공유되는 할당량 상태. Gemini 할당량은 유저별이 아니라
+    프로젝트(API 키) 단위라서, 세션이 아니라 앱 전체 기준으로 추적해야 정확하다."""
+    return {"exhausted_until": None}
+
+
+def mark_quota_exhausted():
+    if not _TZ_OK:
+        return
+    _quota_state()["exhausted_until"] = _next_quota_reset()
+
+
+def get_quota_status():
+    """반환: (지금 할당량이 소진된 상태인지, 리셋 예정 시각(KST, datetime|None))"""
+    if not _TZ_OK:
+        return False, None
+    exhausted_until = _quota_state().get("exhausted_until")
+    if exhausted_until is None:
+        return False, None
+    if datetime.now(_PT) >= exhausted_until:
+        _quota_state()["exhausted_until"] = None  # 리셋 시각이 지났으면 자동 해제
+        return False, None
+    return True, exhausted_until.astimezone(_KST)
+
 
 SYSTEM_PROMPT = """\
 당신은 20~30대 사회초년생들 사이에서 입소문 난, 카리스마 있는 금융 트레이너 콘셉트의 AI 코치 "레벨업 코치"입니다.
@@ -178,7 +229,9 @@ def get_risk_profile(answers: list):
         )
         text = resp.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         return json.loads(text)
-    except Exception:
+    except Exception as e:
+        if _is_quota_error(e):
+            mark_quota_exhausted()
         # AI 호출이 실패하면(쿼터 초과 등) 규칙 기반 결과로 조용히 대체한다.
         return _fallback_risk_profile(answers, total_score)
 
@@ -243,7 +296,9 @@ def get_full_report(data: dict) -> tuple[str, bool]:
         )
         text = resp.text.strip()
         return (text, False) if text else (_fallback_report(data), True)
-    except Exception:
+    except Exception as e:
+        if _is_quota_error(e):
+            mark_quota_exhausted()
         return _fallback_report(data), True
 
 
@@ -275,7 +330,9 @@ def chat_with_coach(history: list, user_context: dict) -> tuple[str, bool]:
             config=types.GenerateContentConfig(system_instruction=CHAT_SYSTEM_PROMPT),
         )
         return resp.text.strip(), False
-    except Exception:
+    except Exception as e:
+        if _is_quota_error(e):
+            mark_quota_exhausted()
         return "지금 응답이 원활하지 않아요. 잠시 후 다시 시도해주세요.", True
 
 
@@ -313,6 +370,8 @@ def get_financial_diagnosis(spending_by_category: dict, portfolio_summary: list,
         text = resp.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         return json.loads(text)
     except Exception as e:
+        if _is_quota_error(e):
+            mark_quota_exhausted()
         return {
             "hype_line": "",
             "summary": "지금 응답이 원활하지 않아요. 잠시 후 다시 시도해주세요.",
