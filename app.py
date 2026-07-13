@@ -1298,6 +1298,8 @@ def render_onboarding(user):
 
     if user.get("risk_profile"):
         rp = user["risk_profile"]
+        if rp.get("_fallback"):
+            st.info("지금은 AI 서버가 붐벼서(사용량 초과) 문항 점수를 기반으로 한 기본 진단 결과를 보여드려요. 내용은 AI 진단과 방향성이 같아요.")
         if rp.get("_error"):
             st.warning("진단 응답이 원활하지 않았어요. 아래 '다시 진단받기'를 눌러 한 번 더 시도해주세요.")
             if rp.get("_error_detail"):
