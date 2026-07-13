@@ -44,6 +44,11 @@ def mark_quota_exhausted():
     _quota_state()["exhausted_until"] = _next_quota_reset()
 
 
+def ai_configured() -> bool:
+    """GEMINI_API_KEY가 설정되어 AI 호출 자체가 가능한 상태인지."""
+    return _client() is not None
+
+
 def get_quota_status():
     """반환: (지금 할당량이 소진된 상태인지, 리셋 예정 시각(KST, datetime|None))"""
     if not _TZ_OK:

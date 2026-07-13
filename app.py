@@ -1,7 +1,7 @@
 # app.py — 머니레벨업: 사회초년생을 위한 AI 금융 코칭 모의투자 앱
 import html
 import time
-from datetime import date
+from datetime import date, datetime
 
 import streamlit as st
 import pandas as pd
@@ -30,7 +30,7 @@ from utils.core import (
     spending_persona, estimate_retirement,
     verify_pin,
 )
-from utils.ai_coach import get_financial_diagnosis, get_risk_profile, get_full_report, chat_with_coach, get_quota_status
+from utils.ai_coach import get_financial_diagnosis, get_risk_profile, get_full_report, chat_with_coach, get_quota_status, ai_configured
 from utils.database import db_available
 
 st.set_page_config(page_title="머니레벨업 | AI 금융 코치", page_icon="💡", layout="wide")
@@ -61,6 +61,43 @@ def relative_time(ts):
     if diff < 86400:
         return f"{int(diff // 3600)}시간 전"
     return time.strftime("%m/%d", time.localtime(ts))
+
+
+def _format_remaining(reset_at) -> str:
+    """reset_at까지 남은 시간을 'N시간 M분' 형태로 표시."""
+    now = datetime.now(reset_at.tzinfo)
+    remain_sec = max(0, int((reset_at - now).total_seconds()))
+    h, m = divmod(remain_sec // 60, 60)
+    if h > 0:
+        return f"{h}시간 {m}분"
+    return f"{max(m, 1)}분"
+
+
+def ai_status_line() -> str:
+    """AI 기능의 현재 사용 가능 상태를 한 줄 문자열로 반환. 배너·탭 등 여러 곳에서 재사용."""
+    if not ai_configured():
+        return "⚪ **AI 기능 미설정** — GEMINI_API_KEY가 설정되지 않아 규칙 기반 기본 결과로 대체돼요."
+    quota_exhausted, reset_at = get_quota_status()
+    if quota_exhausted and reset_at:
+        return (f"⏳ **AI 기능 일시 이용 불가** — 무료 할당량 소진, "
+                f"**{_format_remaining(reset_at)} 후** ({reset_at.strftime('%m/%d %H:%M')} 한국시간) 다시 사용할 수 있어요.")
+    return "🟢 **AI 기능 사용 가능**"
+
+
+def render_ai_status_banner():
+    """대시보드 상단 등에서 사용하는 AI 상태 배너. 사용 가능/불가 모두 항상 표시한다."""
+    if not ai_configured():
+        st.info("⚪ AI 기능이 아직 설정되지 않았어요 (GEMINI_API_KEY 미설정) — 그동안은 규칙 기반 기본 진단/리포트로 대신 보여드려요.")
+        return
+    quota_exhausted, reset_at = get_quota_status()
+    if quota_exhausted and reset_at:
+        st.warning(
+            f"⏳ 오늘 AI 무료 할당량을 모두 사용했어요. **{_format_remaining(reset_at)} 후** "
+            f"({reset_at.strftime('%m/%d %H:%M')} 한국시간) 다시 사용할 수 있어요. "
+            "(투자성향 진단은 기본 진단 결과로 계속 이용 가능해요)"
+        )
+    else:
+        st.success("🟢 AI 기능 사용 가능 — AI 코치·AI 상담·투자성향 진단을 자유롭게 이용해보세요.")
 
 
 PLOTLY_DARK = dict(
@@ -1295,6 +1332,7 @@ def render_badges(user, market, display_name: str = "회원"):
 def render_onboarding(user):
     st.subheader("🧭 투자성향 진단")
     st.caption(f"{len(ONBOARDING_QUESTIONS)}개 질문에 답하면 AI가 소득·비상금·부채까지 종합해 투자성향을 분석해드려요.")
+    st.caption(ai_status_line() + " (AI 이용이 어려운 경우에도 기본 진단 결과를 바로 보여드려요)")
 
     if user.get("risk_profile"):
         rp = user["risk_profile"]
@@ -1354,6 +1392,7 @@ def render_onboarding(user):
 def render_ai_coach(user, market):
     st.markdown("## 🤖 AI 금융 코치")
     st.caption("최근 소비·투자·저축 데이터를 바탕으로 Gemini 기반 코치가 당신만을 위한 진단을 내려드립니다.")
+    st.caption(ai_status_line())
 
     if st.button("⚡ 코치 소환하기", type="primary", use_container_width=True):
         st.session_state["_ai_busy"] = True
@@ -1461,6 +1500,7 @@ def render_ai_coach(user, market):
 def render_ai_chat(user, market):
     st.markdown("## 💬 AI 상담 챗봇")
     st.caption("자유롭게 질문해보세요. 코치가 당신의 최신 가계부·투자·저축 데이터를 참고해 답해드려요.")
+    st.caption(ai_status_line())
 
     for msg in user.get("chat_history", []):
         with st.chat_message("user" if msg["role"] == "user" else "assistant"):
@@ -1745,7 +1785,10 @@ def build_report_card_html(user, market, display_name: str = "회원") -> str:
     persona = spending_persona(user)
     scam = scam_lab_summary(user)
     rl = user.get("risk_lab", {})
-    nw = round(real_net_worth(user) + mock_total_value(user, market))
+    # ⚠️ 대시보드와 동일하게 실제 자산과 모의투자는 절대 합산하지 않고 분리해서 보여준다
+    # (합산하면 게임 시드머니가 실제 순자산처럼 보여서 오해를 줄 수 있음).
+    real_nw = round(real_net_worth(user))
+    mock_val = round(mock_total_value(user, market))
     badge_count = len(user.get("badges", []))
     today = date.today().strftime("%Y.%m.%d")
     name = html.escape(display_name or "회원")
@@ -1787,8 +1830,13 @@ def build_report_card_html(user, market, display_name: str = "회원") -> str:
       <div class="stat"><div class="k">레벨</div><div class="v">Lv.{level}</div></div>
       <div class="stat"><div class="k">누적 XP</div><div class="v">{user['xp']}</div></div>
       <div class="stat"><div class="k">획득 뱃지</div><div class="v">{badge_count}개</div></div>
-      <div class="stat"><div class="k">순자산</div><div class="v">{format_korean_money(nw)}</div></div>
     </div>
+
+    <div class="row">
+      <div class="stat"><div class="k">💰 실제 자산 <span style="font-weight:400">(진짜 돈)</span></div><div class="v">{format_korean_money(real_nw)}</div></div>
+      <div class="stat"><div class="k">🧪 모의투자 <span style="font-weight:400">(연습용 가상 시드머니)</span></div><div class="v">{format_korean_money(mock_val)}</div></div>
+    </div>
+    <p style="font-size:.72rem;color:#4E5968;margin-top:-6px;">※ 모의투자는 학습용 가상 자금으로, 실제 순자산에 포함되지 않습니다.</p>
 
     <div class="section">
       <h2>재무 건강 점수</h2>
@@ -1977,11 +2025,29 @@ def main():
         st.markdown(f"<span class='level-badge'>⭐ 레벨 {level} · XP {user['xp']}</span>", unsafe_allow_html=True)
         st.progress(pct)
         st.caption(f"🏅 뱃지 {len(user.get('badges', []))} / {len(BADGES)}개 보유")
-        if st.button("🔄 처음부터 다시 시작"):
-            save_user(uid, default_user())  # 저장된 기록도 함께 초기화
-            for k in ("user", "market", "ai_result", "profile", "_last_save_ok", "_last_save_ts"):
+
+        st.divider()
+        # ── 🔓 로그아웃: DB 기록은 그대로 두고 세션만 정리한다. 같은 이름+출생연도+PIN으로
+        # 다시 로그인하면 오늘까지의 기록이 전부 그대로 이어진다 (아래 '처음부터 다시 시작'과는 다름). ──
+        if st.button("🔓 로그아웃", use_container_width=True):
+            _persist(user)  # 세션을 지우기 전에 마지막 상태를 한 번 더 확실히 저장
+            for k in ("user", "market", "ai_result", "ai_report_md", "ai_report_error", "profile",
+                      "_last_save_ok", "_last_save_ts", "_is_new_user", "_show_guide_overlay"):
                 st.session_state.pop(k, None)
             st.rerun()
+        if db_available():
+            st.caption("로그아웃해도 기록은 저장돼요. 같은 이름·출생연도·PIN으로 다시 로그인하면 이어서 할 수 있어요.")
+        else:
+            st.caption("⚠️ DB 미연결 상태라 로그아웃하면 이번 방문 기록은 사라져요. 이어서 하시려면 로그아웃하지 마세요.")
+
+        with st.expander("⚠️ 처음부터 다시 시작 (데이터 완전 삭제)"):
+            st.caption("저장된 모든 기록을 영구히 지우고 새 계정처럼 처음부터 시작해요. 로그아웃과 달리 되돌릴 수 없어요.")
+            confirm_reset = st.checkbox("정말로 모든 기록을 삭제할래요", key="_confirm_reset")
+            if st.button("🔄 처음부터 다시 시작", disabled=not confirm_reset, use_container_width=True):
+                save_user(uid, default_user())  # 저장된 기록도 함께 초기화
+                for k in ("user", "market", "ai_result", "profile", "_last_save_ok", "_last_save_ts", "_confirm_reset"):
+                    st.session_state.pop(k, None)
+                st.rerun()
 
         with st.expander("🔧 지갑 잔액 직접 수정"):
             st.caption("깜빡하고 초기 자금을 잘못 넣었거나, 실제 통장 잔액에 맞춰 보정하고 싶을 때 사용하세요.")
@@ -2007,12 +2073,7 @@ def main():
         <p>{html.escape(profile['name'])}님, 오늘도 한 걸음 레벨업 해봐요</p>
         </div>""", unsafe_allow_html=True)
 
-    quota_exhausted, reset_at = get_quota_status()
-    if quota_exhausted:
-        st.warning(
-            f"⚠️ 오늘 AI 무료 할당량을 모두 사용했어요. **{reset_at.strftime('%m/%d %H:%M')} (한국시간) 이후** 다시 사용할 수 있어요. "
-            "(투자성향 진단은 기본 진단 결과로 계속 이용 가능해요)"
-        )
+    render_ai_status_banner()
 
     render_news_ticker(market)
 
