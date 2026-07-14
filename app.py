@@ -571,7 +571,7 @@ div[data-testid="stVerticalBlockBorderWrapper"] > div[data-testid="stVerticalBlo
 }
 
 /* 사이드바가 접혔을 때 뜨는 '>>' 버튼을 'My Page' 검정 글씨로 교체
-   (아이콘이 SVG든 폰트 아이콘이든 상관없이, 안의 내용을 전부 숨기고 텍스트만 얹는 방식) */
+   (개발자도구로 확인: 아이콘은 data-testid="stIconMaterial" 안의 "keyboard_double_arrow_right" 리게이처 텍스트) */
 div[data-testid="collapsedControl"],
 div[data-testid="stSidebarCollapsedControl"] {
     width: auto !important;
@@ -581,13 +581,14 @@ div[data-testid="stSidebarCollapsedControl"] {
     overflow: visible !important;
     position: relative !important;
 }
-div[data-testid="collapsedControl"] *,
-div[data-testid="stSidebarCollapsedControl"] * {
+div[data-testid="collapsedControl"] span[data-testid="stIconMaterial"],
+div[data-testid="stSidebarCollapsedControl"] span[data-testid="stIconMaterial"] {
+    font-size: 0 !important;
+    color: transparent !important;
     visibility: hidden !important;
 }
 div[data-testid="collapsedControl"]::after,
 div[data-testid="stSidebarCollapsedControl"]::after {
-    visibility: visible !important;
     content: "My Page";
     position: absolute;
     left: 10px;
