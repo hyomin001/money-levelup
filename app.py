@@ -570,32 +570,35 @@ div[data-testid="stVerticalBlockBorderWrapper"] > div[data-testid="stVerticalBlo
     box-shadow: 0 1px 2px rgba(25,31,40,0.04);
 }
 
-/* 사이드바가 접혔을 때 뜨는 '>>' 화살표를 'My Page' 검정 글씨로 교체
-   (Streamlit 버전에 따라 testid가 달라질 수 있어 두 가지 모두 대응) */
+/* 사이드바가 접혔을 때 뜨는 '>>' 버튼을 'My Page' 검정 글씨로 교체
+   (아이콘이 SVG든 폰트 아이콘이든 상관없이, 안의 내용을 전부 숨기고 텍스트만 얹는 방식) */
 div[data-testid="collapsedControl"],
 div[data-testid="stSidebarCollapsedControl"] {
     width: auto !important;
-    min-width: 84px;
-    padding: 4px 10px !important;
+    min-width: 92px !important;
+    height: auto !important;
+    min-height: 32px !important;
+    overflow: visible !important;
+    position: relative !important;
 }
-div[data-testid="collapsedControl"] svg,
-div[data-testid="stSidebarCollapsedControl"] svg {
-    display: none !important;
+div[data-testid="collapsedControl"] *,
+div[data-testid="stSidebarCollapsedControl"] * {
+    visibility: hidden !important;
 }
 div[data-testid="collapsedControl"]::after,
 div[data-testid="stSidebarCollapsedControl"]::after {
+    visibility: visible !important;
     content: "My Page";
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
     font-family: 'Noto Sans KR', sans-serif;
     font-weight: 700;
     font-size: 0.85rem;
     color: #191F28 !important;
     white-space: nowrap;
-}
-div[data-testid="collapsedControl"] button,
-div[data-testid="collapsedControl"] *,
-div[data-testid="stSidebarCollapsedControl"] button,
-div[data-testid="stSidebarCollapsedControl"] * {
-    color: #191F28 !important;
+    pointer-events: none;
 }
 </style>
 """
