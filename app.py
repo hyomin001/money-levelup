@@ -6,6 +6,7 @@ from datetime import date, datetime
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 
 from utils.config import (
@@ -570,39 +571,93 @@ div[data-testid="stVerticalBlockBorderWrapper"] > div[data-testid="stVerticalBlo
     box-shadow: 0 1px 2px rgba(25,31,40,0.04);
 }
 
-/* 사이드바가 접혔을 때 뜨는 '>>' 버튼을 'My Page' 검정 글씨로 교체
-   (개발자도구로 확인: 아이콘은 data-testid="stIconMaterial" 안의 "keyboard_double_arrow_right" 리게이처 텍스트) */
-div[data-testid="collapsedControl"],
-div[data-testid="stSidebarCollapsedControl"] {
-    width: auto !important;
-    min-width: 92px !important;
-    height: auto !important;
-    min-height: 32px !important;
-    overflow: visible !important;
-    position: relative !important;
-}
-div[data-testid="collapsedControl"] span[data-testid="stIconMaterial"],
-div[data-testid="stSidebarCollapsedControl"] span[data-testid="stIconMaterial"] {
-    font-size: 0 !important;
-    color: transparent !important;
-    visibility: hidden !important;
-}
-div[data-testid="collapsedControl"]::after,
-div[data-testid="stSidebarCollapsedControl"]::after {
-    content: "My Page";
-    position: absolute;
-    left: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-family: 'Noto Sans KR', sans-serif;
-    font-weight: 700;
-    font-size: 0.85rem;
-    color: #191F28 !important;
-    white-space: nowrap;
-    pointer-events: none;
-}
+/* 사이드바가 접혔을 때 뜨는 '>>' 버튼 꾸미기는 CSS만으로는 신뢰성이 낮아서
+   inject_my_page_button() 함수의 JS(components.html)에서 처리합니다. */
 </style>
 """
+
+
+def inject_my_page_button():
+    """사이드바가 접혔을 때 화면에 뜨는 기본 '>>' 버튼을
+    눈에 띄는 검정 알약(pill) 모양 '👤 내 정보 보기' 버튼으로 바꿔줍니다.
+
+    CSS만으로는 Streamlit 버전에 따라 실제 DOM 구조(아이콘이 span인지 svg인지,
+    testid 이름 등)가 달라서 안 먹히는 경우가 많았기 때문에,
+    components.html 안의 JS가 실제 부모 문서(window.parent.document)를 직접
+    찾아가서 스타일을 입히고, 0.5초마다 반복 실행해서 화면이 다시 그려져도
+    (사이드바 접기/펼치기, st.rerun 등) 계속 버튼이 유지되도록 합니다.
+    """
+    components.html(
+        """
+        <script>
+        (function () {
+            function enhance() {
+                const doc = window.parent.document;
+                const selectors = [
+                    '[data-testid="collapsedControl"]',
+                    '[data-testid="stSidebarCollapsedControl"]'
+                ];
+                let control = null;
+                for (const sel of selectors) {
+                    const el = doc.querySelector(sel);
+                    if (el) { control = el; break; }
+                }
+                if (!control) return;
+
+                // 기존 아이콘(svg 또는 stIconMaterial span)은 자리만 차지하지 않게 숨김
+                const icons = control.querySelectorAll('svg, span[data-testid="stIconMaterial"]');
+                icons.forEach(function (el) {
+                    el.style.opacity = '0';
+                    el.style.width = '0';
+                    el.style.minWidth = '0';
+                    el.style.margin = '0';
+                });
+
+                control.style.background = '#191F28';
+                control.style.borderRadius = '999px';
+                control.style.padding = '0 16px';
+                control.style.height = '38px';
+                control.style.minWidth = '128px';
+                control.style.width = 'auto';
+                control.style.display = 'flex';
+                control.style.alignItems = 'center';
+                control.style.justifyContent = 'center';
+                control.style.boxShadow = '0 3px 10px rgba(25,31,40,0.28)';
+                control.style.animation = 'mypageBtnPulse 1.8s ease-in-out infinite';
+
+                if (!control.querySelector('.mypage-btn-label')) {
+                    const label = doc.createElement('span');
+                    label.className = 'mypage-btn-label';
+                    label.innerText = '👤 내 정보 보기';
+                    label.style.color = '#fff';
+                    label.style.fontWeight = '700';
+                    label.style.fontSize = '13px';
+                    label.style.fontFamily = "'Noto Sans KR', sans-serif";
+                    label.style.whiteSpace = 'nowrap';
+                    label.style.pointerEvents = 'none';
+                    control.appendChild(label);
+                }
+
+                if (!doc.getElementById('mypage-btn-pulse-style')) {
+                    const style = doc.createElement('style');
+                    style.id = 'mypage-btn-pulse-style';
+                    style.innerHTML = [
+                        '@keyframes mypageBtnPulse {',
+                        '  0%, 100% { box-shadow: 0 3px 10px rgba(25,31,40,0.28); }',
+                        '  50% { box-shadow: 0 3px 18px rgba(25,31,40,0.55), 0 0 0 6px rgba(25,31,40,0.10); }',
+                        '}'
+                    ].join('\\n');
+                    doc.head.appendChild(style);
+                }
+            }
+            enhance();
+            setInterval(enhance, 500);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 
 def price_chart(asset_id, market):
@@ -2218,6 +2273,7 @@ def render_signup_gate():
 # ── 메인 ──────────────────────────────────────────────────────────────────
 def main():
     st.markdown(CSS, unsafe_allow_html=True)
+    inject_my_page_button()
 
     if "profile" not in st.session_state:
         render_signup_gate()
