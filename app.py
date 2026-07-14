@@ -591,22 +591,46 @@ def inject_my_page_button():
         """
         <script>
         (function () {
+            function findControl(doc) {
+                // 1) 예전/최신 Streamlit이 쓰던 data-testid로 먼저 시도
+                let control = doc.querySelector('[data-testid="collapsedControl"]') ||
+                              doc.querySelector('[data-testid="stSidebarCollapsedControl"]');
+                if (control) return control;
+
+                // 2) aria-label / title에 sidebar 관련 텍스트가 있으면 그걸로
+                control = doc.querySelector('[aria-label*="sidebar" i]') ||
+                          doc.querySelector('[title*="sidebar" i]') ||
+                          doc.querySelector('button[aria-label*="expand" i]');
+                if (control) return control;
+
+                // 3) 최후 수단: data-testid 이름이 바뀌어도 항상 같은 자리(왼쪽 위 고정,
+                //    작은 크기)에 뜨는 버튼이라는 시각적 특징으로 직접 탐색
+                const win = doc.defaultView;
+                const candidates = doc.querySelectorAll('div, button, span');
+                for (let i = 0; i < candidates.length; i++) {
+                    const el = candidates[i];
+                    const style = win.getComputedStyle(el);
+                    if (style.position !== 'fixed') continue;
+                    const rect = el.getBoundingClientRect();
+                    if (rect.top >= 0 && rect.top < 60 &&
+                        rect.left >= 0 && rect.left < 60 &&
+                        rect.width > 10 && rect.width < 70 &&
+                        rect.height > 10 && rect.height < 70) {
+                        return el;
+                    }
+                }
+                return null;
+            }
+
             function enhance() {
                 const doc = window.parent.document;
-                const selectors = [
-                    '[data-testid="collapsedControl"]',
-                    '[data-testid="stSidebarCollapsedControl"]'
-                ];
-                let control = null;
-                for (const sel of selectors) {
-                    const el = doc.querySelector(sel);
-                    if (el) { control = el; break; }
-                }
+                const control = findControl(doc);
                 if (!control) return;
 
-                // 기존 아이콘(svg 또는 stIconMaterial span)은 자리만 차지하지 않게 숨김
-                const icons = control.querySelectorAll('svg, span[data-testid="stIconMaterial"]');
+                // 기존 아이콘(svg/span/이미지)은 자리만 차지하지 않게 숨김
+                const icons = control.querySelectorAll('svg, span, img');
                 icons.forEach(function (el) {
+                    if (el.classList.contains('mypage-btn-label')) return;
                     el.style.opacity = '0';
                     el.style.width = '0';
                     el.style.minWidth = '0';
@@ -624,6 +648,7 @@ def inject_my_page_button():
                 control.style.justifyContent = 'center';
                 control.style.boxShadow = '0 3px 10px rgba(25,31,40,0.28)';
                 control.style.animation = 'mypageBtnPulse 1.8s ease-in-out infinite';
+                control.style.zIndex = '999999';
 
                 if (!control.querySelector('.mypage-btn-label')) {
                     const label = doc.createElement('span');
@@ -635,6 +660,8 @@ def inject_my_page_button():
                     label.style.fontFamily = "'Noto Sans KR', sans-serif";
                     label.style.whiteSpace = 'nowrap';
                     label.style.pointerEvents = 'none';
+                    label.style.opacity = '1';
+                    label.style.width = 'auto';
                     control.appendChild(label);
                 }
 
