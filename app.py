@@ -14,6 +14,7 @@ from utils.config import (
     ONBOARDING_QUESTIONS, BADGES, BENCHMARK_SPENDING_RATIO,
     SCAM_SCENARIOS, LEVERAGE_OPTIONS, LEVERAGE_SEED, LEVERAGE_MAINTENANCE_RATIO,
     CRISIS_SCENARIOS, CRISIS_DECISION_CHOICES, GUIDE_SECTIONS,
+    IMPULSE_THRESHOLD,
 )
 from utils.core import (
     get_user, save_user, default_user, log_tx, delete_tx, add_income, adjust_balance,
@@ -24,6 +25,9 @@ from utils.core import (
     create_saving, saving_progress, total_saving_amount,
     financial_health_score, predict_next_month_expense,
     analyze_budget_50_30_20, detect_recurring_subscriptions,
+    no_spend_streak_calendar, check_streak_badges,
+    create_pending_impulse, pending_impulses_view, resolve_pending_impulse, check_impulse_badges,
+    money_shadow_comparisons,
     record_scam_answer, scam_lab_summary, SCAM_MAX_SCORE,
     run_leverage_simulation, record_leverage_trial,
     get_crisis_path, reset_crisis_path, simulate_crisis_decisions, record_crisis_result,
@@ -1055,6 +1059,42 @@ def render_invest(user, market):
 
 
 # ── 가계부 ────────────────────────────────────────────────────────────────
+def render_no_spend_calendar(user):
+    """무지출 스트릭을 GitHub 잔디밭 스타일의 주간 히트맵으로 시각화한다."""
+    cal = no_spend_streak_calendar(user, weeks=12)
+    days = cal["days"]
+    if not days:
+        return
+
+    weekday_labels = ["월", "화", "수", "목", "금", "토", "일"]
+    first_wd = days[0]["weekday"]
+    num_weeks = (first_wd + len(days) + 6) // 7
+    z = [[None] * num_weeks for _ in range(7)]
+    text = [[""] * num_weeks for _ in range(7)]
+    for idx, day in enumerate(days):
+        cell = first_wd + idx
+        week, wd = cell // 7, cell % 7
+        z[wd][week] = 1 if day["no_spend"] else 0
+        label = "무지출 🌿" if day["no_spend"] else "지출 있음"
+        text[wd][week] = f"{day['date']} · {label}"
+
+    fig = go.Figure(go.Heatmap(
+        z=z, text=text, hoverinfo="text",
+        x=list(range(num_weeks)), y=weekday_labels,
+        colorscale=[[0, "#E9ECEF"], [1, "#2F9E44"]], showscale=False,
+        xgap=3, ygap=3, zmin=0, zmax=1,
+    ))
+    fig.update_layout(**PLOTLY_DARK, height=200,
+                       xaxis=dict(showticklabels=False, showgrid=False),
+                       yaxis=dict(showgrid=False, autorange="reversed"))
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("🔥 현재 스트릭", f"{cal['current_streak']}일")
+    m2.metric("🏆 최고 기록", f"{cal['longest_streak']}일")
+    m3.metric("📅 이번 달 무지출", f"{cal['no_spend_this_month']}일")
+
+
 def render_expense(user):
     bal = user.get("real_cash", 0)
     bal_color = "🟢" if bal >= 0 else "🔴"
@@ -1087,17 +1127,81 @@ def render_expense(user):
                 amount = st.number_input("금액(원)", min_value=0, step=1000, value=10000)
             with c2:
                 memo = st.text_input("메모", placeholder="예: 친구랑 점심 😋")
-            if st.button("💾 기록하기", type="primary", use_container_width=True):
-                if amount <= 0:
-                    st.error("금액을 확인해주세요.")
-                elif amount > user.get("real_cash", 0):
-                    st.error("지갑 잔액이 부족합니다. 가계부 탭에서 수입을 먼저 추가하거나 지갑 잔액을 조정해주세요.")
-                else:
-                    user["real_cash"] = user.get("real_cash", 0) - amount
-                    log_tx(user, {"kind": "expense", "category": sel["id"], "amount": amount, "memo": memo})
-                    _persist(user)
-                    st.success("기록 완료! 오늘도 한 걸음 레벨업 🌱")
-                    st.rerun()
+
+            draft = st.session_state.get("_impulse_draft")
+            if draft is None:
+                if st.button("💾 기록하기", type="primary", use_container_width=True):
+                    if amount <= 0:
+                        st.error("금액을 확인해주세요.")
+                    elif amount > user.get("real_cash", 0):
+                        st.error("지갑 잔액이 부족합니다. 가계부 탭에서 수입을 먼저 추가하거나 지갑 잔액을 조정해주세요.")
+                    elif amount >= IMPULSE_THRESHOLD:
+                        st.session_state["_impulse_draft"] = {"category": sel["id"], "amount": amount, "memo": memo}
+                        st.rerun()
+                    else:
+                        user["real_cash"] = user.get("real_cash", 0) - amount
+                        log_tx(user, {"kind": "expense", "category": sel["id"], "amount": amount, "memo": memo})
+                        _persist(user)
+                        st.success("기록 완료! 오늘도 한 걸음 레벨업 🌱")
+                        for line in money_shadow_comparisons(amount, user):
+                            st.caption(f"☕ {line}")
+                        st.rerun()
+            else:
+                st.warning(f"⏸️ **{format_korean_money(draft['amount'])}**은 {IMPULSE_THRESHOLD:,}원 이상 지출이에요 — "
+                           "충동구매인지 24시간 쿨다운을 걸어볼까요?")
+                for line in money_shadow_comparisons(draft["amount"], user):
+                    st.caption(f"☕ {line}")
+                d1, d2, d3 = st.columns(3)
+                with d1:
+                    if st.button("⏸️ 24시간 쿨다운 걸기", type="primary", use_container_width=True):
+                        create_pending_impulse(user, draft["category"], draft["amount"], draft["memo"])
+                        _persist(user)
+                        st.session_state["_impulse_draft"] = None
+                        st.toast("쿨다운에 담았어요. 아래 '충동구매 쿨다운' 목록에서 언제든 다시 결정할 수 있어요.")
+                        st.rerun()
+                with d2:
+                    if st.button("지금 바로 기록하기", use_container_width=True):
+                        user["real_cash"] = user.get("real_cash", 0) - draft["amount"]
+                        log_tx(user, {"kind": "expense", "category": draft["category"], "amount": draft["amount"],
+                                       "memo": draft["memo"]})
+                        _persist(user)
+                        st.session_state["_impulse_draft"] = None
+                        st.success("기록 완료!")
+                        st.rerun()
+                with d3:
+                    if st.button("취소", use_container_width=True):
+                        st.session_state["_impulse_draft"] = None
+                        st.rerun()
+
+        pending = pending_impulses_view(user)
+        if pending:
+            st.markdown("#### ⏸️ 충동구매 쿨다운 대기 중")
+            for p in pending:
+                cat = CAT_BY_ID.get(p["category"], {"icon": "💳", "name": "기타"})
+                with st.container(border=True):
+                    pc1, pc2 = st.columns([3, 2])
+                    with pc1:
+                        st.write(f"{cat['icon']} **{cat['name']}** · {format_korean_money(p['amount'])}"
+                                 + (f" · {html.escape(p['memo'])}" if p.get("memo") else ""))
+                        if p["ready"]:
+                            st.caption("✅ 24시간이 지났어요 — 이제 결정해보세요")
+                        else:
+                            h, rem = divmod(p["remaining_seconds"], 3600)
+                            m = rem // 60
+                            st.caption(f"⏳ 남은 시간 {h}시간 {m}분")
+                    with pc2:
+                        b1, b2 = st.columns(2)
+                        with b1:
+                            if st.button("기록하기", key=f"imp_confirm_{p['id']}", use_container_width=True):
+                                resolve_pending_impulse(user, p["id"], "confirm")
+                                _persist(user)
+                                st.rerun()
+                        with b2:
+                            if st.button("포기 🎉", key=f"imp_cancel_{p['id']}", use_container_width=True):
+                                resolve_pending_impulse(user, p["id"], "cancel")
+                                _persist(user)
+                                st.toast(f"잘했어요! {format_korean_money(p['amount'])}을 아꼈어요 🎉")
+                                st.rerun()
 
     with tab_in:
         st.caption("월급, 용돈, 부수입 등 실제로 들어온 돈을 기록하면 잔액에 바로 반영돼요.")
@@ -1157,6 +1261,11 @@ def render_expense(user):
             with st.expander(f"🔍 구독 후보 ({len(subs['candidates'])}건 — 아직 1개월치만 기록됨)"):
                 for s in subs["candidates"]:
                     st.caption(f"{s['label']} · {format_korean_money(s['monthly_cost'])} (다음 달에도 기록되면 확정 표시)")
+
+    # ── 🔥 무지출 스트릭 캘린더 ────────────────────────────────────────────
+    st.subheader("🔥 무지출 스트릭")
+    st.caption("지출 없이 지나간 날이 초록색으로 쌓여요. 최근 12주 기준")
+    render_no_spend_calendar(user)
 
     col_l, col_r = st.columns([3, 2])
     with col_l:
@@ -2093,7 +2202,7 @@ def main():
                      pin=st.session_state.pop("_pending_pin", None))
     market = tick_market()
     record_net_worth_point(user, market)
-    newly = check_habit_badges(user, market) + check_risk_lab_badges(user)
+    newly = check_habit_badges(user, market) + check_risk_lab_badges(user) + check_streak_badges(user) + check_impulse_badges(user)
     for bid in newly:
         st.toast(f"🏅 뱃지 획득: {BADGE_BY_ID[bid]['name']}", icon="🎉")
 

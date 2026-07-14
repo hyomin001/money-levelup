@@ -13,6 +13,7 @@ from utils.config import (
     NEWS_TEMPLATES, BADGES, LEVEL_XP_TABLE, EXPENSE_CATEGORIES, ORDERBOOK_LEVELS, ORDERBOOK_TICK_RATIO,
     SCAM_SCENARIOS, LEVERAGE_SEED, LEVERAGE_SIM_DAYS, LEVERAGE_MAINTENANCE_RATIO,
     CRISIS_SCENARIOS, CRISIS_DECISION_CHOICES,
+    IMPULSE_THRESHOLD, IMPULSE_COOLDOWN_HOURS, MONEY_SHADOW_ITEMS,
 )
 from utils.database import load_doc, save_doc, db_available
 
@@ -63,6 +64,9 @@ def default_user(initial_real_cash: int = None, initial_savings: int = 0):
         },
         "guide_seen": False,    # 📖 첫 방문 이용 가이드를 이미 봤는지 여부
         "pin_hash": None,       # 🔐 4자리 PIN 해시 (동명이인+동일 출생연도 계정 충돌 방지용)
+        "created_at": time.time(),   # 🔥 무지출 스트릭 캘린더 시작 기준일
+        "pending_impulses": [], # ⏸️ 충동구매 쿨다운 대기 목록 [{id, category, amount, memo, created_ts, unlock_ts}]
+        "impulse_cancel_count": 0,   # ⏸️ 쿨다운 중 '포기하기'를 선택한 누적 횟수
     }
     if initial_real_cash:
         log_tx(user, {"kind": "income", "category": "etc_in", "amount": int(initial_real_cash),
@@ -658,6 +662,138 @@ def detect_recurring_subscriptions(user: dict):
     candidates.sort(key=lambda x: -x["monthly_cost"])
     monthly_total = sum(c["monthly_cost"] for c in confirmed)
     return {"confirmed": confirmed, "candidates": candidates, "monthly_total": monthly_total}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🔥 무지출 스트릭 캘린더 — 지출 없이 지나간 날을 GitHub 잔디밭처럼 시각화
+# ══════════════════════════════════════════════════════════════════════════
+def no_spend_streak_calendar(user: dict, weeks: int = 12):
+    """최근 weeks*7일 구간의 일별 '무지출 여부'를 계산해 스트릭 통계와 함께 반환한다."""
+    today = date.fromtimestamp(time.time())
+    window_days = weeks * 7
+    account_start = date.fromtimestamp(user.get("created_at", time.time()))
+    range_start = max(account_start, today - timedelta(days=window_days - 1))
+
+    # 실제 소비 행위로 인정하는 지출만 집계 (초기 설정/잔액 보정은 제외)
+    spend_dates = set()
+    for t in user.get("tx_log", []):
+        if t.get("kind") == "expense" and not t.get("is_adjustment") and not t.get("is_setup"):
+            spend_dates.add(date.fromtimestamp(t.get("ts", time.time())).isoformat())
+
+    days = []
+    d = range_start
+    while d <= today:
+        days.append({"date": d.isoformat(), "weekday": d.weekday(), "no_spend": d.isoformat() not in spend_dates})
+        d += timedelta(days=1)
+
+    # 오늘부터 거꾸로 연속 무지출 일수 (계정 시작일 이전은 카운트하지 않음)
+    current_streak = 0
+    d = today
+    while d >= range_start and d.isoformat() not in spend_dates:
+        current_streak += 1
+        d -= timedelta(days=1)
+
+    longest_streak, run = 0, 0
+    for day in days:
+        run = run + 1 if day["no_spend"] else 0
+        longest_streak = max(longest_streak, run)
+
+    this_month = today.month
+    no_spend_this_month = sum(1 for day in days
+                               if day["no_spend"] and date.fromisoformat(day["date"]).month == this_month)
+
+    return {
+        "days": days, "range_start": range_start.isoformat(), "today": today.isoformat(),
+        "current_streak": current_streak, "longest_streak": longest_streak,
+        "no_spend_this_month": no_spend_this_month,
+    }
+
+
+def check_streak_badges(user: dict):
+    """무지출 스트릭 길이에 따라 뱃지를 지급하고, 새로 획득한 뱃지 id 목록을 반환한다."""
+    streak = no_spend_streak_calendar(user)["current_streak"]
+    newly = []
+    if streak >= 7 and award_badge(user, "no_spend_streak_7"):
+        newly.append("no_spend_streak_7")
+    if streak >= 14 and award_badge(user, "no_spend_streak_14"):
+        newly.append("no_spend_streak_14")
+    if streak >= 30 and award_badge(user, "no_spend_streak_30"):
+        newly.append("no_spend_streak_30")
+    return newly
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# ⏸️ 충동구매 쿨다운 — 일정 금액 이상 지출은 즉시 기록하지 않고 대기시켜 재고할 시간을 준다
+# (사용자는 언제든 '지금 바로 기록하기'로 대기를 건너뛸 수 있다 — 강제 차단이 아닌 넛지)
+# ══════════════════════════════════════════════════════════════════════════
+def create_pending_impulse(user: dict, category: str, amount: int, memo: str = ""):
+    now = time.time()
+    item = {
+        "id": uuid.uuid4().hex[:10], "category": category, "amount": amount, "memo": memo,
+        "created_ts": now, "unlock_ts": now + IMPULSE_COOLDOWN_HOURS * 3600,
+    }
+    user.setdefault("pending_impulses", []).append(item)
+    return item["id"]
+
+
+def pending_impulses_view(user: dict):
+    """대기 목록을 최근 등록 순으로 반환하며, 각 항목에 남은 시간(초)과 준비 여부를 붙인다."""
+    now = time.time()
+    out = []
+    for it in user.get("pending_impulses", []):
+        remain = max(0, int(it["unlock_ts"] - now))
+        out.append({**it, "remaining_seconds": remain, "ready": remain <= 0})
+    return sorted(out, key=lambda x: -x["created_ts"])
+
+
+def resolve_pending_impulse(user: dict, impulse_id: str, action: str):
+    """action='confirm' → 실제로 지출 기록(잔액 차감), action='cancel' → 지출 포기(자제 카운트 증가).
+    반환: 처리된 항목 dict 또는 None."""
+    items = user.get("pending_impulses", [])
+    it = next((x for x in items if x["id"] == impulse_id), None)
+    if it is None:
+        return None
+    user["pending_impulses"] = [x for x in items if x["id"] != impulse_id]
+
+    if action == "confirm":
+        user["real_cash"] = user.get("real_cash", 0) - it["amount"]
+        log_tx(user, {"kind": "expense", "category": it["category"], "amount": it["amount"],
+                       "memo": it.get("memo", "")})
+    elif action == "cancel":
+        user["impulse_cancel_count"] = user.get("impulse_cancel_count", 0) + 1
+    return it
+
+
+def check_impulse_badges(user: dict):
+    newly = []
+    n = user.get("impulse_cancel_count", 0)
+    if n >= 3 and award_badge(user, "impulse_resist_3"):
+        newly.append("impulse_resist_3")
+    if n >= 10 and award_badge(user, "impulse_resist_10"):
+        newly.append("impulse_resist_10")
+    return newly
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# ☕ 돈 그림자 — 지출 금액을 익숙한 물가·목표저축 진행률로 환산해 체감시킨다
+# ══════════════════════════════════════════════════════════════════════════
+def money_shadow_comparisons(amount: int, user: dict = None, n: int = 2):
+    if amount <= 0:
+        return []
+    picks = random.sample(MONEY_SHADOW_ITEMS, k=min(n, len(MONEY_SHADOW_ITEMS)))
+    comparisons = []
+    for item in picks:
+        multiple = amount / item["price"]
+        qty = f"{multiple:.1f}개" if multiple < 10 else f"{multiple:.0f}개"
+        comparisons.append(f"{item['icon']} {item['name']} {qty}")
+
+    if user is not None:
+        g = user.get("goal")
+        if g and not g.get("completed") and g.get("target", 0) > 0:
+            pct = amount / g["target"] * 100
+            comparisons.append(f"🎯 목표 '{g['name']}'의 {pct:.1f}%에 해당하는 금액이에요")
+
+    return comparisons
 
 
 # ══════════════════════════════════════════════════════════════════════════
