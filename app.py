@@ -591,34 +591,80 @@ def inject_my_page_button():
         """
         <script>
         (function () {
+            function isVisible(el) {
+                if (!el || !el.isConnected) return false;
+                if (el.offsetParent === null) return false;
+                const rect = el.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0) return false;
+                const style = el.ownerDocument.defaultView.getComputedStyle(el);
+                if (style.display === 'none' || style.visibility === 'hidden') return false;
+                return true;
+            }
+
             function findControl(doc) {
                 // 0) devtools로 직접 확인한 최신 Streamlit의 실제 testid
-                let control = doc.querySelector('[data-testid="stExpandSidebarButton"]');
-                if (control) return control;
+                //    (반응형 레이아웃 때문에 같은 testid를 가진, 화면에 안 보이는
+                //     복제 요소가 있을 수 있어서 실제로 화면에 보이는 것만 사용)
+                const candidates0 = doc.querySelectorAll('[data-testid="stExpandSidebarButton"]');
+                for (let i = 0; i < candidates0.length; i++) {
+                    if (isVisible(candidates0[i])) return candidates0[i];
+                }
 
                 // 1) 예전 버전들이 쓰던 이름들 (하위 호환)
-                control = doc.querySelector('[data-testid="collapsedControl"]') ||
-                          doc.querySelector('[data-testid="stSidebarCollapsedControl"]');
-                if (control) return control;
+                const legacySelectors = ['[data-testid="collapsedControl"]', '[data-testid="stSidebarCollapsedControl"]'];
+                for (const sel of legacySelectors) {
+                    const els = doc.querySelectorAll(sel);
+                    for (let i = 0; i < els.length; i++) {
+                        if (isVisible(els[i])) return els[i];
+                    }
+                }
 
                 // 2) aria-label / title에 sidebar 관련 텍스트가 있으면 그걸로
-                control = doc.querySelector('[aria-label*="sidebar" i]') ||
-                          doc.querySelector('[title*="sidebar" i]') ||
-                          doc.querySelector('button[aria-label*="expand" i]');
-                if (control) return control;
+                const labelSelectors = ['[aria-label*="sidebar" i]', '[title*="sidebar" i]', 'button[aria-label*="expand" i]'];
+                for (const sel of labelSelectors) {
+                    const els = doc.querySelectorAll(sel);
+                    for (let i = 0; i < els.length; i++) {
+                        if (isVisible(els[i])) return els[i];
+                    }
+                }
 
-                // 3) 최후 수단: 헤더 툴바(stToolbar) 안에서 가장 왼쪽에 있는 버튼
+                // 3) 최후 수단: 헤더 툴바(stToolbar) 안에서 화면에 보이는 첫 버튼
                 const toolbar = doc.querySelector('[data-testid="stToolbar"]');
                 if (toolbar) {
-                    const btn = toolbar.querySelector('button');
-                    if (btn) return btn;
+                    const btns = toolbar.querySelectorAll('button');
+                    for (let i = 0; i < btns.length; i++) {
+                        if (isVisible(btns[i])) return btns[i];
+                    }
                 }
                 return null;
+            }
+
+            function resetPrevious(doc, keepControl) {
+                // 예전에 우리가 꾸며놨던 버튼 중, 지금 선택된 control이 아닌 것들은
+                // 원상복구 (혹시 남아있는 중복/잘못 잡힌 버튼 정리)
+                const labels = doc.querySelectorAll('.mypage-btn-label');
+                labels.forEach(function (label) {
+                    const el = label.parentElement;
+                    if (!el || el === keepControl) return;
+                    label.remove();
+                    ['background', 'border-radius', 'padding', 'height', 'min-width',
+                     'width', 'display', 'align-items', 'justify-content',
+                     'box-shadow', 'animation', 'z-index'].forEach(function (prop) {
+                        el.style.removeProperty(prop);
+                    });
+                    el.querySelectorAll('svg, span, img').forEach(function (icon) {
+                        icon.style.removeProperty('opacity');
+                        icon.style.removeProperty('width');
+                        icon.style.removeProperty('min-width');
+                        icon.style.removeProperty('margin');
+                    });
+                });
             }
 
             function enhance() {
                 const doc = window.parent.document;
                 const control = findControl(doc);
+                resetPrevious(doc, control);
                 if (!control) return;
 
                 // 기존 아이콘(svg/span/이미지)은 자리만 차지하지 않게 숨김
