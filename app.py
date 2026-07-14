@@ -592,9 +592,13 @@ def inject_my_page_button():
         <script>
         (function () {
             function findControl(doc) {
-                // 1) 예전/최신 Streamlit이 쓰던 data-testid로 먼저 시도
-                let control = doc.querySelector('[data-testid="collapsedControl"]') ||
-                              doc.querySelector('[data-testid="stSidebarCollapsedControl"]');
+                // 0) devtools로 직접 확인한 최신 Streamlit의 실제 testid
+                let control = doc.querySelector('[data-testid="stExpandSidebarButton"]');
+                if (control) return control;
+
+                // 1) 예전 버전들이 쓰던 이름들 (하위 호환)
+                control = doc.querySelector('[data-testid="collapsedControl"]') ||
+                          doc.querySelector('[data-testid="stSidebarCollapsedControl"]');
                 if (control) return control;
 
                 // 2) aria-label / title에 sidebar 관련 텍스트가 있으면 그걸로
@@ -603,21 +607,11 @@ def inject_my_page_button():
                           doc.querySelector('button[aria-label*="expand" i]');
                 if (control) return control;
 
-                // 3) 최후 수단: data-testid 이름이 바뀌어도 항상 같은 자리(왼쪽 위 고정,
-                //    작은 크기)에 뜨는 버튼이라는 시각적 특징으로 직접 탐색
-                const win = doc.defaultView;
-                const candidates = doc.querySelectorAll('div, button, span');
-                for (let i = 0; i < candidates.length; i++) {
-                    const el = candidates[i];
-                    const style = win.getComputedStyle(el);
-                    if (style.position !== 'fixed') continue;
-                    const rect = el.getBoundingClientRect();
-                    if (rect.top >= 0 && rect.top < 60 &&
-                        rect.left >= 0 && rect.left < 60 &&
-                        rect.width > 10 && rect.width < 70 &&
-                        rect.height > 10 && rect.height < 70) {
-                        return el;
-                    }
+                // 3) 최후 수단: 헤더 툴바(stToolbar) 안에서 가장 왼쪽에 있는 버튼
+                const toolbar = doc.querySelector('[data-testid="stToolbar"]');
+                if (toolbar) {
+                    const btn = toolbar.querySelector('button');
+                    if (btn) return btn;
                 }
                 return null;
             }
