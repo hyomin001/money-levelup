@@ -569,6 +569,34 @@ div[data-testid="stVerticalBlockBorderWrapper"] > div[data-testid="stVerticalBlo
     background: var(--paper-2) !important;
     box-shadow: 0 1px 2px rgba(25,31,40,0.04);
 }
+
+/* 사이드바가 접혔을 때 뜨는 '>>' 화살표를 'My Page' 검정 글씨로 교체
+   (Streamlit 버전에 따라 testid가 달라질 수 있어 두 가지 모두 대응) */
+div[data-testid="collapsedControl"],
+div[data-testid="stSidebarCollapsedControl"] {
+    width: auto !important;
+    min-width: 84px;
+    padding: 4px 10px !important;
+}
+div[data-testid="collapsedControl"] svg,
+div[data-testid="stSidebarCollapsedControl"] svg {
+    display: none !important;
+}
+div[data-testid="collapsedControl"]::after,
+div[data-testid="stSidebarCollapsedControl"]::after {
+    content: "My Page";
+    font-family: 'Noto Sans KR', sans-serif;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #191F28 !important;
+    white-space: nowrap;
+}
+div[data-testid="collapsedControl"] button,
+div[data-testid="collapsedControl"] *,
+div[data-testid="stSidebarCollapsedControl"] button,
+div[data-testid="stSidebarCollapsedControl"] * {
+    color: #191F28 !important;
+}
 </style>
 """
 
