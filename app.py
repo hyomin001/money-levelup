@@ -392,24 +392,19 @@ div[data-testid="stMetricValue"] { color: var(--ink) !important; font-family: 'S
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--brand); }
 
-/* ── 탭 내비게이션: 여백 중심 세그먼트 컨트롤 ── */
-.stTabs [data-baseweb="tab-list"] {
+/* ── 상단 내비게이션: st.radio 기반 세그먼트 컨트롤 (rerun에도 선택 상태가 유지되도록 st.tabs 대신 사용) ── */
+div[data-testid="stRadio"] > div[role="radiogroup"] {
     gap: 2px; background: var(--paper-2); padding: 5px; border-radius: 12px;
-    border: 1px solid var(--line);
-    flex-wrap: wrap;
+    border: 1px solid var(--line); flex-wrap: wrap; row-gap: 4px;
 }
-.stTabs [data-baseweb="tab"] {
-    height: auto; padding: 8px 16px; border-radius: 9px; background: transparent;
+div[data-testid="stRadio"] label {
+    height: auto; padding: 8px 16px; margin: 0; border-radius: 9px; background: transparent;
     color: var(--ink-faint); font-family: 'Noto Sans KR', sans-serif; font-weight: 600; font-size: 0.87rem;
-    transition: background .15s, color .15s;
+    transition: background .15s, color .15s; cursor: pointer;
 }
-.stTabs [data-baseweb="tab"]:hover { background: var(--brand-soft); color: var(--brand-deep); }
-.stTabs [aria-selected="true"] {
-    background: var(--brand) !important; color: #fff !important;
-}
-.stTabs [data-baseweb="tab-highlight"] { display: none; }
-.stTabs [data-baseweb="tab-border"] { display: none; }
-.stTabs [data-baseweb="tab-panel"] { padding-top: 18px; }
+div[data-testid="stRadio"] label:hover { background: var(--brand-soft); color: var(--brand-deep); }
+div[data-testid="stRadio"] label > div:first-child { display: none; }  /* 기본 라디오 동그라미 숨김 */
+div[data-testid="stRadio"] label:has(input:checked) { background: var(--brand) !important; color: #fff !important; }
 
 /* ── 버튼 ── */
 .stButton > button {
@@ -483,7 +478,7 @@ a, a:visited { color: var(--brand-deep) !important; }
 @media (max-width: 640px) {
     .ml-hero { padding: 18px 18px; border-radius: 16px; }
     .ml-hero h1 { font-size: 1.4rem; }
-    .stTabs [data-baseweb="tab"] { padding: 7px 10px; font-size: 0.78rem; }
+    div[data-testid="stRadio"] label { padding: 7px 10px; font-size: 0.78rem; }
 }
 
 /* ══════════════ 대시보드: 토스 스타일 ══════════════ */
@@ -2477,31 +2472,37 @@ def main():
 
     render_news_ticker(market)
 
-    tabs = st.tabs(["📖 가이드", "📊 대시보드", "🧭 투자성향", "📈 모의투자", "🧾 가계부",
-                    "🎯 목표저축", "🏦 예/적금", "🚨 리스크 체험관", "🧓 노후 준비", "🤖 AI 코치", "💬 AI 상담", "🏅 뱃지"])
-    with tabs[0]:
+    NAV_ITEMS = ["📖 가이드", "📊 대시보드", "🧭 투자성향", "📈 모의투자", "🧾 가계부",
+                 "🎯 목표저축", "🏦 예/적금", "🚨 리스크 체험관", "🧓 노후 준비", "🤖 AI 코치", "💬 AI 상담", "🏅 뱃지"]
+    # st.tabs()는 선택된 탭을 코드가 제어할 수 없는 컴포넌트라, st.rerun()이 여러 번 겹치면
+    # (특히 AI 응답을 기다리는 동안) 종종 첫 번째 탭("가이드")으로 돌아가 버리는 문제가 있었다.
+    # key가 있는 위젯(st.radio)은 session_state에 선택값이 저장되므로 rerun을 몇 번 하든
+    # 사용자가 있던 메뉴 그대로 유지된다.
+    active_nav = st.radio("메뉴", NAV_ITEMS, key="_active_nav", horizontal=True, label_visibility="collapsed")
+
+    if active_nav == NAV_ITEMS[0]:
         render_guide_tab(user)
-    with tabs[1]:
+    elif active_nav == NAV_ITEMS[1]:
         render_dashboard(user, market, profile['name'])
-    with tabs[2]:
+    elif active_nav == NAV_ITEMS[2]:
         render_onboarding(user)
-    with tabs[3]:
+    elif active_nav == NAV_ITEMS[3]:
         render_invest(user, market)
-    with tabs[4]:
+    elif active_nav == NAV_ITEMS[4]:
         render_expense(user)
-    with tabs[5]:
+    elif active_nav == NAV_ITEMS[5]:
         render_goals(user)
-    with tabs[6]:
+    elif active_nav == NAV_ITEMS[6]:
         render_savings(user)
-    with tabs[7]:
+    elif active_nav == NAV_ITEMS[7]:
         render_risk_lab(user)
-    with tabs[8]:
+    elif active_nav == NAV_ITEMS[8]:
         render_retirement(user, age)
-    with tabs[9]:
+    elif active_nav == NAV_ITEMS[9]:
         render_ai_coach(user, market)
-    with tabs[10]:
+    elif active_nav == NAV_ITEMS[10]:
         render_ai_chat(user, market)
-    with tabs[11]:
+    elif active_nav == NAV_ITEMS[11]:
         render_badges(user, market, profile['name'])
 
     _persist(user)  # 뱃지/XP/순자산 추이 등 명시적 rerun 없이 바뀐 값도 매 실행마다 저장
