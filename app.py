@@ -1706,21 +1706,33 @@ def render_onboarding(user):
         if submitted:
             payload = [{"q": q["q"], "answer": answers[q["id"]]["label"], "score": answers[q["id"]]["score"]}
                        for q in ONBOARDING_QUESTIONS]
+            # 실제 AI 호출은 바로 하지 않고 다음 실행으로 미룬다. _ai_busy를 먼저 세팅한 뒤
+            # rerun해야, 다음 실행의 main()이 자동새로고침(시세 tick) 컴포넌트를 아예 그리지
+            # 않아서(=브라우저 타이머 해제) 응답을 기다리는 동안 자동새로고침이 끼어들어
+            # 화면이 통째로 재시작되는(=첫 탭인 "가이드"로 튕기는) 일을 막을 수 있다.
+            st.session_state["_onboarding_payload"] = payload
+            st.session_state["_onboarding_pending"] = True
             st.session_state["_ai_busy"] = True
-            try:
-                with st.spinner("AI가 투자성향을 분석하는 중..."):
-                    result = get_risk_profile(payload)
-            except Exception as e:
-                result = {
-                    "profile_name": "오류", "description": "예상치 못한 오류가 발생했어요.",
-                    "recommended_allocation": {}, "caution": "", "hype_line": "",
-                    "_error": True, "_error_detail": repr(e),
-                }
-            finally:
-                st.session_state["_ai_busy"] = False
-            user["risk_profile"] = result
-            _persist(user)
             st.rerun()
+
+    if st.session_state.get("_onboarding_pending"):
+        payload = st.session_state.get("_onboarding_payload") or []
+        try:
+            with st.spinner("AI가 투자성향을 분석하는 중..."):
+                result = get_risk_profile(payload)
+        except Exception as e:
+            result = {
+                "profile_name": "오류", "description": "예상치 못한 오류가 발생했어요.",
+                "recommended_allocation": {}, "caution": "", "hype_line": "",
+                "_error": True, "_error_detail": repr(e),
+            }
+        finally:
+            st.session_state["_onboarding_pending"] = False
+            st.session_state["_onboarding_payload"] = None
+            st.session_state["_ai_busy"] = False
+        user["risk_profile"] = result
+        _persist(user)
+        st.rerun()
 
 
 # ── AI 코치 ───────────────────────────────────────────────────────────────
@@ -1730,7 +1742,14 @@ def render_ai_coach(user, market):
     st.caption(ai_status_line())
 
     if st.button("⚡ 코치 소환하기", type="primary", use_container_width=True):
+        # 실제 AI 호출은 바로 하지 않고 다음 실행으로 미룬다 (아래 _coach_pending 분기 참고).
+        # _ai_busy를 먼저 세팅한 뒤 rerun해야 자동새로고침(시세 tick)이 응답을 기다리는 동안
+        # 끼어들어 화면이 재시작되는(=첫 탭인 "가이드"로 튕기는) 일을 막을 수 있다.
+        st.session_state["_coach_pending"] = True
         st.session_state["_ai_busy"] = True
+        st.rerun()
+
+    if st.session_state.get("_coach_pending"):
         spending = {}
         for t in user["tx_log"]:
             if t.get("kind") == "expense":
@@ -1756,11 +1775,13 @@ def render_ai_coach(user, market):
             status.update(label="진단 완료!", state="complete", expanded=False)
 
         st.session_state["ai_result"] = result
+        st.session_state["_coach_pending"] = False
         st.session_state["_ai_busy"] = False
         user["ai_coach_count"] = user.get("ai_coach_count", 0) + 1
         if award_badge(user, "ai_first"):
             st.toast("🏅 뱃지 획득: AI와 첫 상담", icon="🎉")
         _persist(user)
+        st.rerun()
 
     result = st.session_state.get("ai_result")
     if result and result.get("_error"):
@@ -1841,11 +1862,24 @@ def render_ai_chat(user, market):
         with st.chat_message("user" if msg["role"] == "user" else "assistant"):
             st.write(msg["text"])
 
-    question = st.chat_input("예: 이번 달 소비 어때? / 지금 포트폴리오 괜찮아?")
-    if question:
-        user.setdefault("chat_history", []).append({"role": "user", "text": question})
+    pending_question = st.session_state.get("_chat_pending_question")
+
+    if pending_question is None:
+        question = st.chat_input("예: 이번 달 소비 어때? / 지금 포트폴리오 괜찮아?")
+        if question:
+            user.setdefault("chat_history", []).append({"role": "user", "text": question})
+            _persist(user)
+            # 실제 AI 호출은 바로 하지 않고 다음 실행으로 미룬다. _ai_busy를 먼저 세팅한 뒤
+            # rerun해야, 다음 실행의 main()이 자동새로고침(시세 tick, 10초 주기) 컴포넌트를
+            # 아예 그리지 않아서(=브라우저 쪽 타이머가 해제됨) 응답을 기다리는 동안 자동새로고침이
+            # 끼어들어 "생각하는 중..."이 뜬 채로 답변이 화면에 그려지기 직전에 통째로 날아가거나,
+            # 화면이 재시작되며 첫 탭인 "가이드"로 튕기는 일을 막을 수 있다.
+            st.session_state["_chat_pending_question"] = question
+            st.session_state["_ai_busy"] = True
+            st.rerun()
+    else:
         with st.chat_message("user"):
-            st.write(question)
+            st.write(pending_question)
 
         spending = {}
         for t in user["tx_log"]:
@@ -1879,9 +1913,12 @@ def render_ai_chat(user, market):
         user["ai_coach_count"] = user.get("ai_coach_count", 0) + 1
         if award_badge(user, "ai_first"):
             st.toast("🏅 뱃지 획득: AI와 첫 상담", icon="🎉")
+        st.session_state["_chat_pending_question"] = None
+        st.session_state["_ai_busy"] = False
         _persist(user)
+        st.rerun()
 
-    if user.get("chat_history") and st.button("🧹 대화 초기화"):
+    if pending_question is None and user.get("chat_history") and st.button("🧹 대화 초기화"):
         user["chat_history"] = []
         _persist(user)
         st.rerun()
